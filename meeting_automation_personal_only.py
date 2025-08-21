@@ -30,10 +30,14 @@ from googleapiclient.errors import HttpError
 # Local modules
 try:
     from src.notion_templates import create_customized_template, create_page_with_template
+    from src.media_processor import get_media_processor
+    from src.drive_sync import get_drive_sync
 except ImportError:
     # Fallback if module not found
     create_customized_template = None
     create_page_with_template = None
+    get_media_processor = None
+    get_drive_sync = None
 
 # ---------------------------------------------------------------------------
 # Path expansion helper
@@ -132,6 +136,13 @@ def load_env_or_fail() -> Dict[str, str]:
     env["DEFAULT_LOOKAHEAD_HOURS"] = os.getenv("DEFAULT_LOOKAHEAD_HOURS", "24")
     env["TELEGRAM_BOT_TOKEN"] = os.getenv("TELEGRAM_BOT_TOKEN", "")
     env["TELEGRAM_CHAT_ID"] = os.getenv("TELEGRAM_CHAT_ID", "")
+    
+    # Настройки медиа обработки
+    env["MEDIA_OUTPUT_FORMAT"] = os.getenv("MEDIA_OUTPUT_FORMAT", "mp3")
+    env["MEDIA_QUALITY"] = os.getenv("MEDIA_QUALITY", "medium")
+    env["MEDIA_SYNC_ROOT"] = os.getenv("MEDIA_SYNC_ROOT", "data/synced")
+    env["MEDIA_CLEANUP_DAYS"] = int(os.getenv("MEDIA_CLEANUP_DAYS", "30"))
+    
     return env
 
 # ---------------------------------------------------------------------------
@@ -524,6 +535,115 @@ def process_event(env: Dict[str, str], event: Dict[str, Any]) -> None:
         print(f"✅ Готово: Personal | {title} | Notion page: {page_id} | Drive: не создана")
 
 # ---------------------------------------------------------------------------
+# Медиа обработка
+# ---------------------------------------------------------------------------
+
+def process_media_in_folders(env: Dict[str, str]) -> None:
+    """Обрабатывает медиа файлы в папках Google Drive."""
+    if not get_media_processor or not get_drive_sync:
+        print("⚠️ Модули медиа обработки недоступны, пропускаю")
+        return
+    
+    try:
+        drive_svc = env.get("drive_svc")
+        if not drive_svc:
+            # Пытаемся получить сервис заново
+            try:
+                cal_svc, drive_svc = get_google_services(env)
+                env["drive_svc"] = drive_svc
+            except Exception as e:
+                print(f"❌ Не удалось получить Google Drive сервис: {e}")
+                return
+        
+        # Создаем синхронизатор и процессор
+        drive_sync = get_drive_sync(drive_svc, env["MEDIA_SYNC_ROOT"])
+        media_processor = get_media_processor(drive_svc, env["MEDIA_OUTPUT_FORMAT"])
+        
+        print("🎬 Начинаю обработку медиа файлов в папках...")
+        
+        # Получаем список папок для обработки
+        parent_id = env.get("PERSONAL_DRIVE_PARENT_ID")
+        if not parent_id:
+            print("⚠️ PERSONAL_DRIVE_PARENT_ID не указан, пропускаю медиа обработку")
+            return
+        
+        # Ищем папки с событиями
+        query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+        folders_result = drive_svc.files().list(
+            q=query,
+            fields="files(id,name,createdTime)",
+            orderBy="createdTime desc"
+        ).execute()
+        
+        folders = folders_result.get("files", [])
+        print(f"📁 Найдено папок для обработки: {len(folders)}")
+        
+        total_processed = 0
+        total_errors = 0
+        
+        for folder in folders[:10]:  # Обрабатываем последние 10 папок
+            folder_id = folder['id']
+            folder_name = folder['name']
+            
+            print(f"\n🔄 Обрабатываю папку: {folder_name}")
+            
+            try:
+                # Синхронизируем папку
+                sync_results = drive_sync.sync_folder(
+                    folder_id, 
+                    folder_name,
+                    file_types=['video/*']  # Только видео файлы
+                )
+                
+                if sync_results['files_synced'] > 0:
+                    # Получаем локальный путь
+                    local_path = drive_sync.get_local_path(folder_name)
+                    
+                    # Обрабатываем медиа файлы
+                    media_results = media_processor.process_folder(
+                        folder_id, 
+                        folder_name, 
+                        local_path
+                    )
+                    
+                    total_processed += media_results['files_processed']
+                    total_errors += len(media_results['errors'])
+                    
+                    print(f"  📊 Результаты обработки:")
+                    print(f"    🎥 Найдено: {media_results['files_found']}")
+                    print(f"    ✅ Обработано: {media_results['files_processed']}")
+                    print(f"    ⏭️ Пропущено: {media_results['files_skipped']}")
+                    print(f"    ❌ Ошибки: {len(media_results['errors'])}")
+                    print(f"    ⏱️ Время: {media_results['processing_time']:.1f}с")
+                else:
+                    print(f"  ⏭️ Нет новых файлов для синхронизации")
+                    
+            except Exception as e:
+                error_msg = f"Ошибка обработки папки {folder_name}: {e}"
+                print(f"  ❌ {error_msg}")
+                total_errors += 1
+        
+        # Очистка старых файлов
+        cleanup_count = drive_sync.cleanup_old_files(env["MEDIA_CLEANUP_DAYS"])
+        if cleanup_count > 0:
+            print(f"\n🗑️ Очищено старых файлов: {cleanup_count}")
+        
+        # Статистика синхронизации
+        sync_stats = drive_sync.get_sync_stats()
+        print(f"\n📊 Статистика синхронизации:")
+        print(f"  📄 Всего файлов: {sync_stats['total_files']}")
+        print(f"  💾 Общий размер: {sync_stats['total_size_formatted']}")
+        print(f"  📁 Папок: {sync_stats['folders_count']}")
+        
+        print(f"\n🎬 Обработка медиа завершена:")
+        print(f"  ✅ Обработано файлов: {total_processed}")
+        print(f"  ❌ Ошибок: {total_errors}")
+        
+    except Exception as e:
+        print(f"❌ Критическая ошибка медиа обработки: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator for prepare
 # ---------------------------------------------------------------------------
 
@@ -577,6 +697,10 @@ def run_prepare(env: Dict[str, str], days: int, limit: int) -> None:
     for ev in filtered_events:
         process_event(env, ev)
         processed_events.append(ev)
+
+    # Обрабатываем медиа файлы в созданных папках
+    print(f"\n🎬 Начинаю обработку медиа файлов...")
+    process_media_in_folders(env)
 
     # Создаём красивый отчёт для Telegram
     telegram_report = create_telegram_report(
@@ -699,6 +823,11 @@ def main():
     # postprocess
     subparsers.add_parser("postprocess", help="Обработка записей (транскрибация и т.п.)")
 
+    # media
+    media_parser = subparsers.add_parser("media", help="Обработка медиа файлов в папках")
+    media_parser.add_argument("--folders", type=int, default=10, help="Максимум папок для обработки")
+    media_parser.add_argument("--cleanup", action="store_true", help="Очистить старые файлы")
+
     # watch
     subparsers.add_parser("watch", help="Непрерывный режим")
 
@@ -708,6 +837,15 @@ def main():
         run_prepare(load_env_or_fail(), args.days, args.limit)
     elif args.cmd == "postprocess":
         print("Запускаем postprocess…")
+    elif args.cmd == "media":
+        env = load_env_or_fail()
+        if args.cleanup:
+            print("🧹 Очистка старых файлов...")
+            drive_sync = get_drive_sync(env.get("drive_svc"), env["MEDIA_SYNC_ROOT"])
+            cleanup_count = drive_sync.cleanup_old_files(env["MEDIA_CLEANUP_DAYS"])
+            print(f"✅ Очищено файлов: {cleanup_count}")
+        else:
+            process_media_in_folders(env)
     elif args.cmd == "watch":
         print("Запускаем watch…")
 

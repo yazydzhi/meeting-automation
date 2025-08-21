@@ -46,9 +46,11 @@ meeting_automation_drive_skip.py
 
 # Test files
 test_notion_template.py
+test_media_processing.py
 
 # Documentation files (keep only README and organized reports)
 GOOGLE_DRIVE_ISSUE.md
 PROJECT_STATUS.md
 NOTION_TEMPLATES_IMPLEMENTATION_REPORT.md
 PRODUCTION_SYSTEM_STATUS_REPORT.md
+MEDIA_PROCESSING_IMPLEMENTATION_REPORT.md
