@@ -43,11 +43,46 @@ class MeetingAutomationService:
         self.media_check_interval = 1800  # 30 минут между проверками медиа
         self.last_media_check = None
         
+        # Проверяем и настраиваем PATH для ffmpeg
+        self._setup_ffmpeg_path()
+        
         # Обработчики сигналов
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
         self.logger.info("🚀 Сервис автоматизации встреч инициализирован")
+    
+    def _setup_ffmpeg_path(self):
+        """Настройка PATH для ffmpeg."""
+        try:
+            # Проверяем, доступен ли ffmpeg в текущем PATH
+            import subprocess
+            result = subprocess.run(['ffmpeg', '-version'], 
+                                  capture_output=True, text=True, timeout=5)
+            if result.returncode == 0:
+                self.logger.info("✅ ffmpeg доступен в системе")
+                return
+        except Exception:
+            pass
+        
+        # Пытаемся найти ffmpeg в стандартных местах
+        ffmpeg_paths = [
+            "/opt/homebrew/bin/ffmpeg",  # macOS Homebrew
+            "/usr/local/bin/ffmpeg",     # macOS/Linux
+            "/usr/bin/ffmpeg",           # Linux
+            "/opt/homebrew/bin/ffmpeg",  # Apple Silicon Homebrew
+        ]
+        
+        for path in ffmpeg_paths:
+            if os.path.exists(path):
+                # Добавляем путь в PATH
+                current_path = os.environ.get('PATH', '')
+                if path not in current_path:
+                    os.environ['PATH'] = f"{path}:{current_path}"
+                    self.logger.info(f"✅ Добавлен путь к ffmpeg: {path}")
+                return
+        
+        self.logger.warning("⚠️ ffmpeg не найден в системе. Медиа обработка может не работать.")
     
     def _setup_logging(self) -> logging.Logger:
         """Настройка логирования."""
@@ -102,6 +137,7 @@ class MeetingAutomationService:
         try:
             cal_svc, drive_svc = get_google_services(self.env)
             self.env["drive_svc"] = drive_svc
+            self.env["cal_svc"] = cal_svc  # Сохраняем cal_svc в env
             self.logger.info("✅ Google сервисы доступны")
             return True
         except Exception as e:
@@ -168,12 +204,12 @@ class MeetingAutomationService:
         try:
             if not get_media_processor or not get_drive_sync:
                 self.logger.warning("⚠️ Модули медиа обработки недоступны")
-                return {"processed": 0, "synced": 0, "errors": 0}
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
             
             drive_svc = self.env.get("drive_svc")
             if not drive_svc:
                 self.logger.warning("⚠️ Google Drive сервис недоступен")
-                return {"processed": 0, "synced": 0, "errors": 0}
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
             
             # Создаем синхронизатор и процессор
             drive_sync = get_drive_sync(drive_svc, self.env["MEDIA_SYNC_ROOT"])
@@ -183,7 +219,7 @@ class MeetingAutomationService:
             parent_id = self.env.get("PERSONAL_DRIVE_PARENT_ID")
             if not parent_id:
                 self.logger.warning("⚠️ PERSONAL_DRIVE_PARENT_ID не указан")
-                return {"processed": 0, "synced": 0, "errors": 0}
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
             
             # Ищем папки с событиями
             query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -251,7 +287,7 @@ class MeetingAutomationService:
             
         except Exception as e:
             self.logger.error(f"❌ Критическая ошибка медиа обработки: {e}")
-            return {"processed": 0, "synced": 0, "errors": 1}
+            return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
     
     def send_telegram_notification(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]):
         """Отправка уведомления в Telegram."""

@@ -44,16 +44,40 @@ class MediaProcessor:
         
         # Проверяем наличие ffmpeg
         if not self._check_ffmpeg():
-            raise RuntimeError("ffmpeg не найден. Установите ffmpeg для обработки медиа файлов.")
+            # Вместо ошибки, просто логируем предупреждение
+            print("⚠️ ffmpeg не найден. Медиа обработка будет пропущена.")
+            self.ffmpeg_available = False
+        else:
+            self.ffmpeg_available = True
     
     def _check_ffmpeg(self) -> bool:
         """Проверяет наличие ffmpeg в системе."""
         try:
-            subprocess.run(['ffmpeg', '-version'], 
-                         capture_output=True, check=True)
+            # Сначала проверяем в текущем PATH
+            result = subprocess.run(['ffmpeg', '-version'], 
+                                  capture_output=True, check=True, timeout=5)
             return True
-        except (subprocess.CalledProcessError, FileNotFoundError):
-            return False
+        except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        
+        # Пытаемся найти ffmpeg в стандартных местах
+        ffmpeg_paths = [
+            "/opt/homebrew/bin/ffmpeg",  # macOS Homebrew
+            "/usr/local/bin/ffmpeg",     # macOS/Linux
+            "/usr/bin/ffmpeg",           # Linux
+            "/opt/homebrew/bin/ffmpeg",  # Apple Silicon Homebrew
+        ]
+        
+        for path in ffmpeg_paths:
+            if os.path.exists(path):
+                try:
+                    result = subprocess.run([path, '-version'], 
+                                          capture_output=True, check=True, timeout=5)
+                    return True
+                except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                    continue
+        
+        return False
     
     def _get_file_hash(self, file_path: str) -> str:
         """Вычисляет MD5 хеш файла для отслеживания изменений."""
@@ -139,6 +163,9 @@ class MediaProcessor:
     
     def _get_ffmpeg_version(self) -> str:
         """Получает версию ffmpeg."""
+        if not hasattr(self, 'ffmpeg_available') or not self.ffmpeg_available:
+            return "Not available"
+        
         try:
             result = subprocess.run(['ffmpeg', '-version'], 
                                   capture_output=True, text=True, check=True)
@@ -185,6 +212,11 @@ class MediaProcessor:
         Returns:
             True если конвертация успешна
         """
+        # Проверяем доступность ffmpeg
+        if not hasattr(self, 'ffmpeg_available') or not self.ffmpeg_available:
+            print("⚠️ ffmpeg недоступен, пропускаю конвертацию")
+            return False
+        
         # Настройки качества
         quality_settings = {
             'low': {'bitrate': '64k', 'sample_rate': '22050'},
