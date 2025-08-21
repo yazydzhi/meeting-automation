@@ -157,7 +157,7 @@ class MeetingAutomationService:
             
             if not cal_svc:
                 self.logger.warning("⚠️ Google Calendar сервис недоступен")
-                return {"processed": 0, "excluded": 0, "errors": 0}
+                return {"processed": 0, "excluded": 0, "errors": 0, "details": []}
             
             events = get_upcoming_events(cal_id, cal_svc, 24, self.env["TIMEZONE"])
             
@@ -174,10 +174,23 @@ class MeetingAutomationService:
             
             # Обрабатываем события
             processed_count = 0
+            processed_details = []
             for ev in filtered_events:
                 try:
-                    process_event(self.env, ev)
+                    result = process_event(self.env, ev)
                     processed_count += 1
+                    
+                    # Собираем детали обработки
+                    event_title = ev.get("summary", "Без названия")
+                    event_time = ev.get("start", {}).get("dateTime", "Время не указано")
+                    
+                    detail = {
+                        "title": event_title,
+                        "time": event_time,
+                        "result": result
+                    }
+                    processed_details.append(detail)
+                    
                 except Exception as e:
                     self.logger.error(f"❌ Ошибка обработки события {ev.get('summary')}: {e}")
             
@@ -185,7 +198,8 @@ class MeetingAutomationService:
                 "total": len(events),
                 "processed": processed_count,
                 "excluded": len(excluded_events),
-                "errors": 0
+                "errors": 0,
+                "details": processed_details
             }
             
             if processed_count > 0:
@@ -197,19 +211,19 @@ class MeetingAutomationService:
             
         except Exception as e:
             self.logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
-            return {"processed": 0, "excluded": 0, "errors": 1}
+            return {"processed": 0, "excluded": 0, "errors": 1, "details": []}
     
     def process_media_files(self) -> Dict[str, Any]:
         """Обработка медиа файлов."""
         try:
             if not get_media_processor or not get_drive_sync:
                 self.logger.warning("⚠️ Модули медиа обработки недоступны")
-                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0, "details": []}
             
             drive_svc = self.env.get("drive_svc")
             if not drive_svc:
                 self.logger.warning("⚠️ Google Drive сервис недоступен")
-                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0, "details": []}
             
             # Создаем синхронизатор и процессор
             drive_sync = get_drive_sync(drive_svc, self.env["MEDIA_SYNC_ROOT"])
@@ -219,7 +233,7 @@ class MeetingAutomationService:
             parent_id = self.env.get("PERSONAL_DRIVE_PARENT_ID")
             if not parent_id:
                 self.logger.warning("⚠️ PERSONAL_DRIVE_PARENT_ID не указан")
-                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0, "details": []}
             
             # Ищем папки с событиями
             query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -233,6 +247,7 @@ class MeetingAutomationService:
             total_processed = 0
             total_synced = 0
             total_errors = 0
+            media_details = []
             
             for folder in folders[:5]:  # Обрабатываем последние 5 папок
                 folder_id = folder['id']
@@ -262,6 +277,15 @@ class MeetingAutomationService:
                         total_processed += media_results['files_processed']
                         total_errors += len(media_results['errors'])
                         
+                        # Собираем детали медиа обработки
+                        if media_results['files_processed'] > 0:
+                            media_details.append({
+                                "folder": folder_name,
+                                "files_processed": media_results['files_processed'],
+                                "files_found": media_results['files_found'],
+                                "processing_time": media_results['processing_time']
+                            })
+                        
                         self.logger.info(f"🎬 Обработана папка {folder_name}: {media_results['files_processed']} файлов")
                     
                 except Exception as e:
@@ -277,44 +301,82 @@ class MeetingAutomationService:
                 "processed": total_processed,
                 "synced": total_synced,
                 "cleanup": cleanup_count,
-                "errors": total_errors
+                "errors": total_errors,
+                "details": media_details
             }
-            
-            if total_processed > 0 or total_synced > 0:
-                self.logger.info(f"🎬 Медиа обработка завершена: {total_processed} файлов, {total_synced} синхронизировано")
             
             return result
             
         except Exception as e:
             self.logger.error(f"❌ Критическая ошибка медиа обработки: {e}")
-            return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
+            return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1, "details": []}
     
     def send_telegram_notification(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]):
-        """Отправка уведомления в Telegram."""
+        """Отправляет уведомление в Telegram."""
         try:
             from meeting_automation_personal_only import notify
             
-            # Создаем краткий отчет
-            report = "🔄 *ОТЧЕТ СЕРВИСА АВТОМАТИЗАЦИИ*\n\n"
+            # Формируем детальный отчет
+            report = "🤖 *ОТЧЕТ АВТОМАТИЗАЦИИ ВСТРЕЧ*\n"
+            report += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
             
             # Статистика календаря
             if calendar_stats["processed"] > 0:
                 report += f"📅 *КАЛЕНДАРЬ:*\n"
                 report += f"• Обработано встреч: {calendar_stats['processed']}\n"
-                report += f"• Исключено: {calendar_stats['excluded']}\n\n"
+                if calendar_stats['excluded'] > 0:
+                    report += f"• Исключено: {calendar_stats['excluded']}\n"
+                report += "\n"
+                
+                # Детали по каждой встрече
+                if calendar_stats.get('details'):
+                    report += "*Обработанные встречи:*\n"
+                    for detail in calendar_stats['details']:
+                        title = detail.get('title', 'Без названия')
+                        time_str = detail.get('time', 'Время не указано')
+                        
+                        # Форматируем время
+                        try:
+                            if 'T' in str(time_str):
+                                # ISO формат времени
+                                dt = datetime.fromisoformat(str(time_str).replace('Z', '+00:00'))
+                                time_formatted = dt.strftime('%H:%M')
+                            else:
+                                time_formatted = str(time_str)
+                        except:
+                            time_formatted = str(time_str)
+                        
+                        report += f"  🕐 {time_formatted} | {title}\n"
+                    report += "\n"
             
             # Статистика медиа
-            if media_stats["processed"] > 0 or media_stats["synced"] > 0:
-                report += f"🎬 *МЕДИА:*\n"
+            if (media_stats["processed"] > 0 or media_stats["synced"] > 0 or 
+                media_stats["cleanup"] > 0):
+                report += f"🎬 *МЕДИА ОБРАБОТКА:*\n"
                 if media_stats["processed"] > 0:
-                    report += f"• Обработано: {media_stats['processed']}\n"
+                    report += f"• Обработано видео: {media_stats['processed']}\n"
                 if media_stats["synced"] > 0:
                     report += f"• Синхронизировано: {media_stats['synced']}\n"
                 if media_stats["cleanup"] > 0:
-                    report += f"• Очищено: {media_stats['cleanup']}\n"
+                    report += f"• Очищено старых файлов: {media_stats['cleanup']}\n"
                 report += "\n"
+                
+                # Детали по медиа обработке
+                if media_stats.get('details'):
+                    report += "*Обработанные папки:*\n"
+                    for detail in media_stats['details']:
+                        folder = detail.get('folder', 'Неизвестная папка')
+                        processed = detail.get('files_processed', 0)
+                        found = detail.get('files_found', 0)
+                        time_sec = detail.get('processing_time', 0)
+                        
+                        report += f"  📁 {folder}\n"
+                        report += f"    🎥 Найдено: {found} | ✅ Обработано: {processed}\n"
+                        if time_sec > 0:
+                            report += f"    ⏱️ Время: {time_sec:.1f} сек\n"
+                    report += "\n"
             
-            # Отправляем только при наличии изменений
+            # Проверяем, есть ли реальные изменения
             has_changes = (
                 calendar_stats["processed"] > 0 or 
                 media_stats["processed"] > 0 or 
@@ -324,7 +386,7 @@ class MeetingAutomationService:
             
             if has_changes:
                 notify(self.env, report)
-                self.logger.info("📱 Уведомление отправлено в Telegram")
+                self.logger.info("📱 Детальное уведомление отправлено в Telegram")
             else:
                 self.logger.info("📱 Уведомление не отправлено (изменений нет)")
                 

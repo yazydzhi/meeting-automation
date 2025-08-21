@@ -497,7 +497,7 @@ def create_or_update_notion_page(
 # Обработка одного события
 # ---------------------------------------------------------------------------
 
-def process_event(env: Dict[str, str], event: Dict[str, Any]) -> None:
+def process_event(env: Dict[str, str], event: Dict[str, Any]) -> Dict[str, Any]:
     """Обрабатывает одно событие из календаря."""
     title = event.get("summary", "Без названия")
     start = event.get("start", {}).get("dateTime") or event.get("start", {}).get("date")
@@ -505,6 +505,17 @@ def process_event(env: Dict[str, str], event: Dict[str, Any]) -> None:
     attendees = [a.get("email", "") for a in event.get("attendees", [])]
     meeting_link = event.get("hangoutLink", "")
     event_id = event.get("id", "")
+
+    result = {
+        "title": title,
+        "start": start,
+        "end": end,
+        "attendees_count": len(attendees),
+        "has_meeting_link": bool(meeting_link),
+        "drive_folder_created": False,
+        "notion_page_id": None,
+        "drive_folder_link": None
+    }
 
     # Создаём папку на Drive
     drive_parent_id = env.get("PERSONAL_DRIVE_PARENT_ID")
@@ -514,6 +525,9 @@ def process_event(env: Dict[str, str], event: Dict[str, Any]) -> None:
         # Форматируем название папки
         folder_name = format_folder_name(title, start)
         folder_link = create_drive_folder(env["drive_svc"], folder_name, drive_parent_id) or ""
+        if folder_link:
+            result["drive_folder_created"] = True
+            result["drive_folder_link"] = folder_link
     else:
         print("⚠️ PERSONAL_DRIVE_PARENT_ID не указан, папки на Drive не создаются")
 
@@ -529,10 +543,14 @@ def process_event(env: Dict[str, str], event: Dict[str, Any]) -> None:
         event_id=event_id or "",
     )
     
+    result["notion_page_id"] = page_id
+    
     if folder_link:
         print(f"✅ Готово: Personal | {title} | Notion page: {page_id} | Drive folder: {folder_link}")
     else:
         print(f"✅ Готово: Personal | {title} | Notion page: {page_id} | Drive: не создана")
+    
+    return result
 
 # ---------------------------------------------------------------------------
 # Медиа обработка
@@ -743,8 +761,8 @@ def run_prepare(env: Dict[str, str], days: int, limit: int) -> None:
     has_calendar_changes = False
     
     for ev in filtered_events:
-        process_event(env, ev)
-        processed_events.append(ev)
+        result = process_event(env, ev)
+        processed_events.append(result)
         has_calendar_changes = True
 
     # Обрабатываем медиа файлы в созданных папках
@@ -817,8 +835,8 @@ def create_telegram_report(
     if processed_events:
         report += f"{emoji_processed} *ОБРАБОТАННЫЕ ВСТРЕЧИ:*\n"
         for i, event in enumerate(processed_events[:10], 1):  # Показываем первые 10
-            title = event.get("summary", "Без названия")
-            start = event.get("start", {}).get("dateTime") or event.get("start", {}).get("date")
+            title = event.get("title", "Без названия")
+            start = event.get("start")
             
             if start:
                 try:

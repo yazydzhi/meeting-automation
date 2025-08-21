@@ -131,8 +131,18 @@ class DriveSync:
             # Получаем список файлов в папке
             query = f"'{folder_id}' in parents and trashed=false"
             if file_types:
-                type_filters = [f"mimeType='{mime_type}'" for mime_type in file_types]
-                query += f" and ({' or '.join(type_filters)})"
+                type_filters = []
+                for mime_type in file_types:
+                    if mime_type.endswith('/*'):
+                        # Для wildcard типов используем contains
+                        base_type = mime_type.replace('/*', '/')
+                        type_filters.append(f"mimeType contains '{base_type}'")
+                    else:
+                        # Для конкретных типов используем точное совпадение
+                        type_filters.append(f"mimeType='{mime_type}'")
+                
+                if type_filters:
+                    query += f" and ({' or '.join(type_filters)})"
             
             files_result = self.drive_service.files().list(
                 q=query,
