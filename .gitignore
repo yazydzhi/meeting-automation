@@ -10,6 +10,8 @@ venv/
 .env
 .venv
 .venv-init/
+creds/
+tokens/
 
 # Editors
 .vscode/
@@ -21,3 +23,24 @@ venv/
 # Data
 data/raw/*
 !data/.gitkeep
+
+# Test results and temporary files
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+*~
+
+# Test outputs
+test_*.py
+*_test.py
+*_test_*.py
+
+# Old automation scripts (keep only the main one)
+meeting_automation.py
+meeting_automation_drive_skip.py
+
+# Documentation files (keep only README and organized reports)
+GOOGLE_DRIVE_ISSUE.md
+PROJECT_STATUS.md
