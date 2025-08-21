@@ -33,7 +33,8 @@ data/raw/*
 *~
 
 # Test outputs
-/tests/reports/*
+tests/reports/
+tests/reports/*
 
 # Old automation scripts (keep only the main one)
 meeting_automation.py
