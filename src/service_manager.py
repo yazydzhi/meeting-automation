@@ -1,0 +1,410 @@
+#!/usr/bin/env python3
+"""
+Сервисный менеджер для автоматизации встреч
+Обеспечивает работу в фоновом режиме с мониторингом и логированием
+"""
+
+import os
+import sys
+import time
+import signal
+import logging
+import threading
+from datetime import datetime, timedelta
+from typing import Dict, Any, Optional
+from pathlib import Path
+
+# Добавляем корневую директорию в путь для импортов
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+try:
+    from meeting_automation_personal_only import load_env_or_fail, get_google_services
+    from src.media_processor import get_media_processor
+    from src.drive_sync import get_drive_sync
+except ImportError as e:
+    print(f"❌ Ошибка импорта: {e}")
+    print("Убедитесь, что все зависимости установлены")
+    sys.exit(1)
+
+
+class MeetingAutomationService:
+    """Основной сервис автоматизации встреч."""
+    
+    def __init__(self, config_path: str = ".env"):
+        """Инициализация сервиса."""
+        self.config_path = config_path
+        self.env = {}
+        self.running = False
+        self.thread = None
+        self.logger = self._setup_logging()
+        
+        # Конфигурация сервиса
+        self.check_interval = 300  # 5 минут между проверками
+        self.media_check_interval = 1800  # 30 минут между проверками медиа
+        self.last_media_check = None
+        
+        # Обработчики сигналов
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        
+        self.logger.info("🚀 Сервис автоматизации встреч инициализирован")
+    
+    def _setup_logging(self) -> logging.Logger:
+        """Настройка логирования."""
+        # Создаем директорию для логов
+        log_dir = Path("logs")
+        log_dir.mkdir(exist_ok=True)
+        
+        # Настраиваем логгер
+        logger = logging.getLogger("meeting_automation_service")
+        logger.setLevel(logging.INFO)
+        
+        # Форматтер
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        )
+        
+        # Файловый хендлер
+        file_handler = logging.FileHandler(
+            log_dir / f"service_{datetime.now().strftime('%Y%m%d')}.log"
+        )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+        
+        # Консольный хендлер
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(logging.INFO)
+        console_handler.setFormatter(formatter)
+        
+        # Добавляем хендлеры
+        logger.addHandler(file_handler)
+        logger.addHandler(console_handler)
+        
+        return logger
+    
+    def _signal_handler(self, signum, frame):
+        """Обработчик сигналов для корректного завершения."""
+        self.logger.info(f"📡 Получен сигнал {signum}, завершаю работу...")
+        self.stop()
+    
+    def load_environment(self) -> bool:
+        """Загрузка переменных окружения."""
+        try:
+            self.env = load_env_or_fail()
+            self.logger.info("✅ Переменные окружения загружены")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка загрузки переменных окружения: {e}")
+            return False
+    
+    def check_google_services(self) -> bool:
+        """Проверка доступности Google сервисов."""
+        try:
+            cal_svc, drive_svc = get_google_services(self.env)
+            self.env["drive_svc"] = drive_svc
+            self.logger.info("✅ Google сервисы доступны")
+            return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка Google сервисов: {e}")
+            return False
+    
+    def process_calendar_events(self) -> Dict[str, Any]:
+        """Обработка событий календаря."""
+        try:
+            from meeting_automation_personal_only import (
+                get_upcoming_events, should_process_event, process_event
+            )
+            
+            # Получаем события на ближайшие 24 часа
+            cal_id = self.env["PERSONAL_CALENDAR_ID"]
+            cal_svc = self.env.get("cal_svc")
+            
+            if not cal_svc:
+                self.logger.warning("⚠️ Google Calendar сервис недоступен")
+                return {"processed": 0, "excluded": 0, "errors": 0}
+            
+            events = get_upcoming_events(cal_id, cal_svc, 24, self.env["TIMEZONE"])
+            
+            # Фильтруем события
+            filtered_events = []
+            excluded_events = []
+            
+            for ev in events:
+                title = ev.get("summary", "Без названия")
+                if should_process_event(title):
+                    filtered_events.append(ev)
+                else:
+                    excluded_events.append(title)
+            
+            # Обрабатываем события
+            processed_count = 0
+            for ev in filtered_events:
+                try:
+                    process_event(self.env, ev)
+                    processed_count += 1
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка обработки события {ev.get('summary')}: {e}")
+            
+            result = {
+                "total": len(events),
+                "processed": processed_count,
+                "excluded": len(excluded_events),
+                "errors": 0
+            }
+            
+            if processed_count > 0:
+                self.logger.info(f"✅ Обработано {processed_count} встреч")
+            else:
+                self.logger.info("📅 Новых встреч для обработки не найдено")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
+            return {"processed": 0, "excluded": 0, "errors": 1}
+    
+    def process_media_files(self) -> Dict[str, Any]:
+        """Обработка медиа файлов."""
+        try:
+            if not get_media_processor or not get_drive_sync:
+                self.logger.warning("⚠️ Модули медиа обработки недоступны")
+                return {"processed": 0, "synced": 0, "errors": 0}
+            
+            drive_svc = self.env.get("drive_svc")
+            if not drive_svc:
+                self.logger.warning("⚠️ Google Drive сервис недоступен")
+                return {"processed": 0, "synced": 0, "errors": 0}
+            
+            # Создаем синхронизатор и процессор
+            drive_sync = get_drive_sync(drive_svc, self.env["MEDIA_SYNC_ROOT"])
+            media_processor = get_media_processor(drive_svc, self.env["MEDIA_OUTPUT_FORMAT"])
+            
+            # Получаем список папок для обработки
+            parent_id = self.env.get("PERSONAL_DRIVE_PARENT_ID")
+            if not parent_id:
+                self.logger.warning("⚠️ PERSONAL_DRIVE_PARENT_ID не указан")
+                return {"processed": 0, "synced": 0, "errors": 0}
+            
+            # Ищем папки с событиями
+            query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            folders_result = drive_svc.files().list(
+                q=query,
+                fields="files(id,name,createdTime)",
+                orderBy="createdTime desc"
+            ).execute()
+            
+            folders = folders_result.get("files", [])
+            total_processed = 0
+            total_synced = 0
+            total_errors = 0
+            
+            for folder in folders[:5]:  # Обрабатываем последние 5 папок
+                folder_id = folder['id']
+                folder_name = folder['name']
+                
+                try:
+                    # Синхронизируем папку
+                    sync_results = drive_sync.sync_folder(
+                        folder_id, 
+                        folder_name,
+                        file_types=['video/*']
+                    )
+                    
+                    total_synced += sync_results['files_synced']
+                    
+                    if sync_results['files_synced'] > 0:
+                        # Получаем локальный путь
+                        local_path = drive_sync.get_local_path(folder_name)
+                        
+                        # Обрабатываем медиа файлы
+                        media_results = media_processor.process_folder(
+                            folder_id, 
+                            folder_name, 
+                            local_path
+                        )
+                        
+                        total_processed += media_results['files_processed']
+                        total_errors += len(media_results['errors'])
+                        
+                        self.logger.info(f"🎬 Обработана папка {folder_name}: {media_results['files_processed']} файлов")
+                    
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка обработки папки {folder_name}: {e}")
+                    total_errors += 1
+            
+            # Очистка старых файлов
+            cleanup_count = drive_sync.cleanup_old_files(self.env["MEDIA_CLEANUP_DAYS"])
+            if cleanup_count > 0:
+                self.logger.info(f"🧹 Очищено {cleanup_count} старых файлов")
+            
+            result = {
+                "processed": total_processed,
+                "synced": total_synced,
+                "cleanup": cleanup_count,
+                "errors": total_errors
+            }
+            
+            if total_processed > 0 or total_synced > 0:
+                self.logger.info(f"🎬 Медиа обработка завершена: {total_processed} файлов, {total_synced} синхронизировано")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Критическая ошибка медиа обработки: {e}")
+            return {"processed": 0, "synced": 0, "errors": 1}
+    
+    def send_telegram_notification(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]):
+        """Отправка уведомления в Telegram."""
+        try:
+            from meeting_automation_personal_only import notify
+            
+            # Создаем краткий отчет
+            report = "🔄 *ОТЧЕТ СЕРВИСА АВТОМАТИЗАЦИИ*\n\n"
+            
+            # Статистика календаря
+            if calendar_stats["processed"] > 0:
+                report += f"📅 *КАЛЕНДАРЬ:*\n"
+                report += f"• Обработано встреч: {calendar_stats['processed']}\n"
+                report += f"• Исключено: {calendar_stats['excluded']}\n\n"
+            
+            # Статистика медиа
+            if media_stats["processed"] > 0 or media_stats["synced"] > 0:
+                report += f"🎬 *МЕДИА:*\n"
+                if media_stats["processed"] > 0:
+                    report += f"• Обработано: {media_stats['processed']}\n"
+                if media_stats["synced"] > 0:
+                    report += f"• Синхронизировано: {media_stats['synced']}\n"
+                if media_stats["cleanup"] > 0:
+                    report += f"• Очищено: {media_stats['cleanup']}\n"
+                report += "\n"
+            
+            # Отправляем только при наличии изменений
+            has_changes = (
+                calendar_stats["processed"] > 0 or 
+                media_stats["processed"] > 0 or 
+                media_stats["synced"] > 0 or 
+                media_stats["cleanup"] > 0
+            )
+            
+            if has_changes:
+                notify(self.env, report)
+                self.logger.info("📱 Уведомление отправлено в Telegram")
+            else:
+                self.logger.info("📱 Уведомление не отправлено (изменений нет)")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка отправки уведомления: {e}")
+    
+    def run_service_cycle(self):
+        """Основной цикл работы сервиса."""
+        self.logger.info("🔄 Запуск цикла обработки...")
+        
+        try:
+            # Проверяем Google сервисы
+            if not self.check_google_services():
+                self.logger.error("❌ Google сервисы недоступны, пропускаю цикл")
+                return
+            
+            # Обрабатываем события календаря
+            calendar_stats = self.process_calendar_events()
+            
+            # Обрабатываем медиа файлы (реже)
+            media_stats = {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+            if (self.last_media_check is None or 
+                time.time() - self.last_media_check > self.media_check_interval):
+                
+                media_stats = self.process_media_files()
+                self.last_media_check = time.time()
+            
+            # Отправляем уведомления
+            self.send_telegram_notification(calendar_stats, media_stats)
+            
+            self.logger.info("✅ Цикл обработки завершен успешно")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Критическая ошибка в цикле сервиса: {e}")
+    
+    def service_worker(self):
+        """Рабочий поток сервиса."""
+        self.logger.info("👷 Рабочий поток сервиса запущен")
+        
+        while self.running:
+            try:
+                self.run_service_cycle()
+                
+                # Ждем до следующей проверки
+                time.sleep(self.check_interval)
+                
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка в рабочем потоке: {e}")
+                time.sleep(60)  # Ждем минуту при ошибке
+    
+    def start(self):
+        """Запуск сервиса."""
+        if self.running:
+            self.logger.warning("⚠️ Сервис уже запущен")
+            return
+        
+        # Загружаем окружение
+        if not self.load_environment():
+            self.logger.error("❌ Не удалось загрузить окружение")
+            return
+        
+        self.running = True
+        self.thread = threading.Thread(target=self.service_worker, daemon=True)
+        self.thread.start()
+        
+        self.logger.info("🚀 Сервис запущен и работает в фоне")
+        self.logger.info(f"⏰ Интервал проверки: {self.check_interval} секунд")
+        self.logger.info(f"🎬 Интервал медиа: {self.media_check_interval} секунд")
+        
+        # Основной цикл для обработки сигналов
+        try:
+            while self.running:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            self.logger.info("⌨️ Получен сигнал прерывания")
+        finally:
+            self.stop()
+    
+    def stop(self):
+        """Остановка сервиса."""
+        if not self.running:
+            return
+        
+        self.logger.info("🛑 Останавливаю сервис...")
+        self.running = False
+        
+        if self.thread and self.thread.is_alive():
+            self.thread.join(timeout=10)
+            if self.thread.is_alive():
+                self.logger.warning("⚠️ Рабочий поток не завершился корректно")
+        
+        self.logger.info("✅ Сервис остановлен")
+
+
+def main():
+    """Точка входа для запуска сервиса."""
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Сервис автоматизации встреч")
+    parser.add_argument("--config", default=".env", help="Путь к файлу конфигурации")
+    parser.add_argument("--interval", type=int, default=300, help="Интервал проверки в секундах")
+    parser.add_argument("--media-interval", type=int, default=1800, help="Интервал медиа обработки в секундах")
+    
+    args = parser.parse_args()
+    
+    # Создаем и запускаем сервис
+    service = MeetingAutomationService(args.config)
+    service.check_interval = args.interval
+    service.media_check_interval = args.media_interval
+    
+    try:
+        service.start()
+    except Exception as e:
+        print(f"❌ Критическая ошибка запуска сервиса: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

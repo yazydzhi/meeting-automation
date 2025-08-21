@@ -1,0 +1,30 @@
+[Unit]
+Description=Meeting Automation Service
+Documentation=https://github.com/yazydzhi/meeting-automation
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=azg
+Group=azg
+WorkingDirectory=/Users/azg/repository/meeting_automation
+Environment=PATH=/Users/azg/repository/meeting_automation/venv/bin
+ExecStart=/Users/azg/repository/meeting_automation/venv/bin/python /Users/azg/repository/meeting_automation/src/service_manager.py
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=meeting-automation
+
+# Безопасность
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/Users/azg/repository/meeting_automation/logs
+ReadWritePaths=/Users/azg/repository/meeting_automation/data
+
+[Install]
+WantedBy=multi-user.target
