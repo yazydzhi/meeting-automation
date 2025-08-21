@@ -29,16 +29,24 @@ STATUS_EXTENSION = '.processed_media'
 class MediaProcessor:
     """Класс для обработки медиа файлов в папках Google Drive."""
     
-    def __init__(self, drive_service, output_format: str = 'mp3'):
+    def __init__(self, drive_service, output_format: str = 'mp3', 
+                 video_compression: bool = True, video_quality: str = 'medium', 
+                 video_codec: str = 'h264'):
         """
         Инициализация процессора медиа.
         
         Args:
             drive_service: Сервис Google Drive API
             output_format: Формат выходного аудио файла (без точки)
+            video_compression: Включить ли компрессию видео
+            video_quality: Качество компрессии видео (low, medium, high, ultra)
+            video_codec: Кодек для компрессии видео (h264, h265, vp9)
         """
         self.drive_service = drive_service
         self.output_format = output_format
+        self.video_compression = video_compression
+        self.video_quality = video_quality
+        self.video_codec = video_codec
         self.processed_files = set()
         self.errors = []
         
@@ -269,6 +277,140 @@ class MediaProcessor:
             self.errors.append(error_msg)
             return False
     
+    def compress_video(self, input_path: str, output_path: str, 
+                      quality: str = 'medium', codec: str = 'h264') -> bool:
+        """
+        Сжимает видео файл для уменьшения размера.
+        
+        Args:
+            input_path: Путь к входному видео файлу
+            output_path: Путь к выходному сжатому видео файлу
+            quality: Качество сжатия (low, medium, high, ultra)
+            codec: Кодек для сжатия (h264, h265, vp9)
+            
+        Returns:
+            True если компрессия успешна
+        """
+        # Проверяем доступность ffmpeg
+        if not hasattr(self, 'ffmpeg_available') or not self.ffmpeg_available:
+            print("⚠️ ffmpeg недоступен, пропускаю компрессию")
+            return False
+        
+        # Настройки качества для разных кодеков
+        quality_settings = {
+            'h264': {
+                'low': {'crf': '28', 'preset': 'fast', 'maxrate': '1000k'},
+                'medium': {'crf': '23', 'preset': 'medium', 'maxrate': '2000k'},
+                'high': {'crf': '18', 'preset': 'slow', 'maxrate': '4000k'},
+                'ultra': {'crf': '15', 'preset': 'veryslow', 'maxrate': '8000k'}
+            },
+            'h265': {
+                'low': {'crf': '30', 'preset': 'fast', 'maxrate': '800k'},
+                'medium': {'crf': '25', 'preset': 'medium', 'maxrate': '1500k'},
+                'high': {'crf': '20', 'preset': 'slow', 'maxrate': '3000k'},
+                'ultra': {'crf': '17', 'preset': 'veryslow', 'maxrate': '6000k'}
+            },
+            'vp9': {
+                'low': {'crf': '32', 'deadline': 'realtime', 'maxrate': '800k'},
+                'medium': {'crf': '27', 'deadline': 'good', 'maxrate': '1500k'},
+                'high': {'crf': '22', 'deadline': 'best', 'maxrate': '3000k'},
+                'ultra': {'crf': '19', 'deadline': 'best', 'maxrate': '6000k'}
+            }
+        }
+        
+        # Получаем настройки для выбранного качества и кодека
+        if codec not in quality_settings:
+            codec = 'h264'  # По умолчанию h264
+        
+        if quality not in quality_settings[codec]:
+            quality = 'medium'  # По умолчанию medium
+        
+        settings = quality_settings[codec][quality]
+        
+        # Формируем команду ffmpeg в зависимости от кодека
+        if codec == 'h264':
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c:v', 'libx264',
+                '-crf', settings['crf'],
+                '-preset', settings['preset'],
+                '-maxrate', settings['maxrate'],
+                '-bufsize', str(int(settings['maxrate'].replace('k', '')) * 2) + 'k',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-y',
+                output_path
+            ]
+        elif codec == 'h265':
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c:v', 'libx265',
+                '-crf', settings['crf'],
+                '-preset', settings['preset'],
+                '-maxrate', settings['maxrate'],
+                '-bufsize', str(int(settings['maxrate'].replace('k', '')) * 2) + 'k',
+                '-c:a', 'aac',
+                '-b:a', '128k',
+                '-movflags', '+faststart',
+                '-y',
+                output_path
+            ]
+        elif codec == 'vp9':
+            cmd = [
+                'ffmpeg',
+                '-i', input_path,
+                '-c:v', 'libvpx-vp9',
+                '-crf', settings['crf'],
+                '-deadline', settings['deadline'],
+                '-maxrate', settings['maxrate'],
+                '-bufsize', str(int(settings['maxrate'].replace('k', '')) * 2) + 'k',
+                '-c:a', 'libopus',
+                '-b:a', '128k',
+                '-y',
+                output_path
+            ]
+        
+        try:
+            print(f"🎬 Сжимаю {os.path.basename(input_path)} ({codec}, {quality})...")
+            
+            # Запускаем ffmpeg
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=600  # 10 минут таймаут для компрессии
+            )
+            
+            if result.returncode == 0:
+                # Получаем размеры файлов для сравнения
+                input_size = os.path.getsize(input_path)
+                output_size = os.path.getsize(output_path)
+                compression_ratio = (1 - output_size / input_size) * 100
+                
+                print(f"✅ Компрессия завершена: {os.path.basename(output_path)}")
+                print(f"   📊 Размер: {self._format_size(input_size)} → {self._format_size(output_size)}")
+                print(f"   📉 Сжатие: {compression_ratio:.1f}%")
+                return True
+            else:
+                error_msg = f"Ошибка ffmpeg при компрессии: {result.stderr}"
+                print(f"❌ {error_msg}")
+                self.errors.append(error_msg)
+                return False
+                
+        except subprocess.TimeoutExpired:
+            error_msg = "Таймаут компрессии (10 минут)"
+            print(f"❌ {error_msg}")
+            self.errors.append(error_msg)
+            return False
+        except Exception as e:
+            error_msg = f"Ошибка компрессии: {e}"
+            print(f"❌ {error_msg}")
+            self.errors.append(error_msg)
+            return False
+    
     def process_folder(self, folder_id: str, folder_name: str, 
                       local_path: str = None) -> Dict[str, any]:
         """
@@ -331,7 +473,21 @@ class MediaProcessor:
                                 local_file_path, folder_name
                             )
                             
-                            # Конвертируем
+                            # Сначала сжимаем видео (если включено)
+                            compressed_video_path = None
+                            if self.video_compression and file_size > 50 * 1024 * 1024:  # Только файлы больше 50MB
+                                compressed_name = f"{os.path.splitext(file_name)[0]}_compressed.mp4"
+                                compressed_video_path = os.path.join(local_path, compressed_name)
+                                
+                                if self.compress_video(local_file_path, compressed_video_path, 
+                                                     self.video_quality, self.video_codec):
+                                    print(f"    🎬 Видео сжато: {compressed_name}")
+                                    # Используем сжатое видео для дальнейшей обработки
+                                    local_file_path = compressed_video_path
+                                else:
+                                    print(f"    ⚠️ Компрессия видео не удалась, используем оригинал")
+                            
+                            # Конвертируем в аудио
                             if self.convert_video_to_audio(local_file_path, output_path):
                                 # Создаем статус файл
                                 processing_time = (datetime.now() - start_time).total_seconds()
@@ -340,6 +496,10 @@ class MediaProcessor:
                                 
                                 # Загружаем аудио файл в Google Drive
                                 self._upload_audio_to_drive(output_path, folder_id, folder_name)
+                                
+                                # Если было создано сжатое видео, загружаем его тоже
+                                if compressed_video_path and os.path.exists(compressed_video_path):
+                                    self._upload_video_to_drive(compressed_video_path, folder_id, folder_name)
                             else:
                                 results['errors'].append(f"Ошибка конвертации: {file_name}")
                         else:
@@ -439,13 +599,67 @@ class MediaProcessor:
             return False
 
 
-def get_media_processor(drive_service, output_format: str = 'mp3') -> MediaProcessor:
+    def _upload_video_to_drive(self, video_path: str, folder_id: str, folder_name: str) -> bool:
+        """
+        Загружает сжатый видео файл в Google Drive.
+        
+        Args:
+            video_path: Путь к локальному видео файлу
+            folder_id: ID папки в Google Drive
+            folder_name: Название папки
+            
+        Returns:
+            True если загрузка успешна
+        """
+        try:
+            if not os.path.exists(video_path):
+                print(f"    ⚠️ Видео файл не найден: {video_path}")
+                return False
+            
+            # Определяем MIME тип
+            mime_type = 'video/mp4'  # Всегда mp4 для сжатых файлов
+            
+            # Метаданные файла
+            file_metadata = {
+                'name': os.path.basename(video_path),
+                'parents': [folder_id],
+                'description': f'Автоматически сжат из оригинального видео в папке "{folder_name}"'
+            }
+            
+            # Загружаем файл
+            media = self.drive_service.files().create(
+                body=file_metadata,
+                media_body=video_path,
+                fields='id,name,webViewLink'
+            ).execute()
+            
+            file_id = media.get('id')
+            web_link = media.get('webViewLink', '')
+            
+            print(f"    ✅ Сжатое видео загружено в Drive: {os.path.basename(video_path)}")
+            print(f"       🔗 {web_link}")
+            
+            return True
+            
+        except Exception as e:
+            error_msg = f"Ошибка загрузки видео в Drive: {e}"
+            print(f"    ❌ {error_msg}")
+            self.errors.append(error_msg)
+            return False
+
+
+def get_media_processor(drive_service, output_format: str = 'mp3', 
+                       video_compression: bool = True, video_quality: str = 'medium', 
+                       video_codec: str = 'h264') -> MediaProcessor:
     """
     Фабричная функция для создания MediaProcessor.
     
     Args:
         drive_service: Сервис Google Drive API
         output_format: Формат выходного аудио файла
+        video_compression: Включить ли компрессию видео
+        video_quality: Качество компрессии видео (low, medium, high, ultra)
+        video_codec: Кодек для компрессии видео (h264, h265, vp9)
         
     Returns:
         Экземпляр MediaProcessor
@@ -453,4 +667,4 @@ def get_media_processor(drive_service, output_format: str = 'mp3') -> MediaProce
     Raises:
         RuntimeError: Если ffmpeg не найден
     """
-    return MediaProcessor(drive_service, output_format)
+    return MediaProcessor(drive_service, output_format, video_compression, video_quality, video_codec)
