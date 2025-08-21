@@ -538,11 +538,18 @@ def process_event(env: Dict[str, str], event: Dict[str, Any]) -> None:
 # Медиа обработка
 # ---------------------------------------------------------------------------
 
-def process_media_in_folders(env: Dict[str, str]) -> None:
+def process_media_in_folders(env: Dict[str, str]) -> Dict[str, Any]:
     """Обрабатывает медиа файлы в папках Google Drive."""
     if not get_media_processor or not get_drive_sync:
         print("⚠️ Модули медиа обработки недоступны, пропускаю")
-        return
+        return {
+            'folders_processed': 0,
+            'files_processed': 0,
+            'files_synced': 0,
+            'cleanup_count': 0,
+            'errors': 0,
+            'has_changes': False
+        }
     
     try:
         drive_svc = env.get("drive_svc")
@@ -553,7 +560,14 @@ def process_media_in_folders(env: Dict[str, str]) -> None:
                 env["drive_svc"] = drive_svc
             except Exception as e:
                 print(f"❌ Не удалось получить Google Drive сервис: {e}")
-                return
+                return {
+                    'folders_processed': 0,
+                    'files_processed': 0,
+                    'files_synced': 0,
+                    'cleanup_count': 0,
+                    'errors': 1,
+                    'has_changes': False
+                }
         
         # Создаем синхронизатор и процессор
         drive_sync = get_drive_sync(drive_svc, env["MEDIA_SYNC_ROOT"])
@@ -565,7 +579,14 @@ def process_media_in_folders(env: Dict[str, str]) -> None:
         parent_id = env.get("PERSONAL_DRIVE_PARENT_ID")
         if not parent_id:
             print("⚠️ PERSONAL_DRIVE_PARENT_ID не указан, пропускаю медиа обработку")
-            return
+            return {
+                'folders_processed': 0,
+                'files_processed': 0,
+                'files_synced': 0,
+                'cleanup_count': 0,
+                'errors': 0,
+                'has_changes': False
+            }
         
         # Ищем папки с событиями
         query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
@@ -580,6 +601,8 @@ def process_media_in_folders(env: Dict[str, str]) -> None:
         
         total_processed = 0
         total_errors = 0
+        total_synced = 0
+        folders_processed = 0
         
         for folder in folders[:10]:  # Обрабатываем последние 10 папок
             folder_id = folder['id']
@@ -594,6 +617,9 @@ def process_media_in_folders(env: Dict[str, str]) -> None:
                     folder_name,
                     file_types=['video/*']  # Только видео файлы
                 )
+                
+                folders_processed += 1
+                total_synced += sync_results['files_synced']
                 
                 if sync_results['files_synced'] > 0:
                     # Получаем локальный путь
@@ -639,8 +665,28 @@ def process_media_in_folders(env: Dict[str, str]) -> None:
         print(f"  ✅ Обработано файлов: {total_processed}")
         print(f"  ❌ Ошибок: {total_errors}")
         
+        # Определяем, были ли изменения
+        has_changes = total_processed > 0 or total_synced > 0 or cleanup_count > 0
+        
+        return {
+            'folders_processed': folders_processed,
+            'files_processed': total_processed,
+            'files_synced': total_synced,
+            'cleanup_count': cleanup_count,
+            'errors': total_errors,
+            'has_changes': has_changes
+        }
+        
     except Exception as e:
         print(f"❌ Критическая ошибка медиа обработки: {e}")
+        return {
+            'folders_processed': 0,
+            'files_processed': 0,
+            'files_synced': 0,
+            'cleanup_count': 0,
+            'errors': 1,
+            'has_changes': False
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -694,27 +740,39 @@ def run_prepare(env: Dict[str, str], days: int, limit: int) -> None:
 
     # Обрабатываем каждое отфильтрованное событие
     processed_events = []
+    has_calendar_changes = False
+    
     for ev in filtered_events:
         process_event(env, ev)
         processed_events.append(ev)
+        has_calendar_changes = True
 
     # Обрабатываем медиа файлы в созданных папках
     print(f"\n🎬 Начинаю обработку медиа файлов...")
-    process_media_in_folders(env)
-
-    # Создаём красивый отчёт для Telegram
-    telegram_report = create_telegram_report(
-        total_events=total_events,
-        total_filtered=total_filtered,
-        total_excluded=total_excluded,
-        processed_events=processed_events,
-        excluded_events=excluded_events,
-        days=days,
-        limit=limit
-    )
+    media_stats = process_media_in_folders(env)
     
-    # Отправляем отчёт в Telegram
-    notify(env, telegram_report)
+    # Проверяем, были ли какие-либо изменения
+    has_any_changes = has_calendar_changes or media_stats['has_changes']
+    
+    # Отправляем уведомление только при наличии изменений
+    if has_any_changes:
+        # Создаём красивый отчёт для Telegram
+        telegram_report = create_telegram_report(
+            total_events=total_events,
+            total_filtered=total_filtered,
+            total_excluded=total_excluded,
+            processed_events=processed_events,
+            excluded_events=excluded_events,
+            media_stats=media_stats,
+            days=days,
+            limit=limit
+        )
+        
+        # Отправляем отчёт в Telegram
+        notify(env, telegram_report)
+        print(f"\n📱 Отправлено уведомление в Telegram (обнаружены изменения)")
+    else:
+        print(f"\n📱 Уведомление не отправлено (изменений не обнаружено)")
 
 # ---------------------------------------------------------------------------
 # Telegram уведомление (опционально)
@@ -726,6 +784,7 @@ def create_telegram_report(
     total_excluded: int,
     processed_events: List[Dict[str, Any]],
     excluded_events: List[str],
+                media_stats: Dict[str, Any],
     days: int,
     limit: int
 ) -> str:
@@ -785,10 +844,68 @@ def create_telegram_report(
             report += f"... и еще {len(excluded_events) - 5} событий\n"
         report += "\n"
     
+    # Статистика медиа обработки
+    if media_stats and media_stats.get('has_changes', False):
+        report += f"\n🎬 *МЕДИА ОБРАБОТКА:*\n"
+        if media_stats.get('files_processed', 0) > 0:
+            report += f"• Обработано файлов: {media_stats['files_processed']}\n"
+        if media_stats.get('files_synced', 0) > 0:
+            report += f"• Синхронизировано: {media_stats['files_synced']}\n"
+        if media_stats.get('cleanup_count', 0) > 0:
+            report += f"• Очищено старых: {media_stats['cleanup_count']}\n"
+        if media_stats.get('folders_processed', 0) > 0:
+            report += f"• Обработано папок: {media_stats['folders_processed']}\n"
+        if media_stats.get('errors', 0) > 0:
+            report += f"• Ошибок: {media_stats['errors']}\n"
+    
     # Итог
-    report += f"{emoji_success} *ИТОГ:* Система успешно обработала {total_filtered} встреч"
+    report += f"\n{emoji_success} *ИТОГ:* Система успешно обработала {total_filtered} встреч"
     if total_excluded > 0:
         report += f" и исключила {total_excluded} личных событий"
+    if media_stats and media_stats.get('has_changes', False):
+        report += f" и обработала медиа файлы"
+    report += "."
+    
+    return report
+
+def create_media_report(media_stats: Dict[str, Any]) -> str:
+    """Создаёт отчёт о медиа обработке для Telegram."""
+    
+    # Эмодзи для разных статусов
+    emoji_media = "🎬"
+    emoji_success = "✅"
+    emoji_error = "❌"
+    emoji_sync = "🔄"
+    emoji_cleanup = "🧹"
+    
+    # Заголовок отчета
+    report = f"{emoji_media} *ОТЧЕТ О МЕДИА ОБРАБОТКЕ*\n\n"
+    
+    # Основная статистика
+    report += f"{emoji_success} *ОБРАБОТКА:*\n"
+    if media_stats.get('files_processed', 0) > 0:
+        report += f"• Обработано файлов: {media_stats['files_processed']}\n"
+    if media_stats.get('files_synced', 0) > 0:
+        report += f"• Синхронизировано: {media_stats['files_synced']}\n"
+    if media_stats.get('folders_processed', 0) > 0:
+        report += f"• Обработано папок: {media_stats['folders_processed']}\n"
+    
+    # Очистка
+    if media_stats.get('cleanup_count', 0) > 0:
+        report += f"\n{emoji_cleanup} *ОЧИСТКА:*\n"
+        report += f"• Очищено старых файлов: {media_stats['cleanup_count']}\n"
+    
+    # Ошибки
+    if media_stats.get('errors', 0) > 0:
+        report += f"\n{emoji_error} *ОШИБКИ:*\n"
+        report += f"• Количество ошибок: {media_stats['errors']}\n"
+    
+    # Итог
+    report += f"\n{emoji_success} *ИТОГ:* Медиа обработка завершена"
+    if media_stats.get('files_processed', 0) > 0:
+        report += f", обработано {media_stats['files_processed']} файлов"
+    if media_stats.get('cleanup_count', 0) > 0:
+        report += f", очищено {media_stats['cleanup_count']} старых файлов"
     report += "."
     
     return report
@@ -844,8 +961,24 @@ def main():
             drive_sync = get_drive_sync(env.get("drive_svc"), env["MEDIA_SYNC_ROOT"])
             cleanup_count = drive_sync.cleanup_old_files(env["MEDIA_CLEANUP_DAYS"])
             print(f"✅ Очищено файлов: {cleanup_count}")
+            
+            # Отправляем уведомление только при очистке файлов
+            if cleanup_count > 0:
+                cleanup_report = f"🧹 *ОЧИСТКА СТАРЫХ ФАЙЛОВ*\n\n✅ Очищено файлов: {cleanup_count}"
+                notify(env, cleanup_report)
+                print(f"📱 Отправлено уведомление в Telegram (очищено {cleanup_count} файлов)")
+            else:
+                print(f"📱 Уведомление не отправлено (файлы для очистки не найдены)")
         else:
-            process_media_in_folders(env)
+            media_stats = process_media_in_folders(env)
+            
+            # Отправляем уведомление только при наличии изменений
+            if media_stats and media_stats.get('has_changes', False):
+                media_report = create_media_report(media_stats)
+                notify(env, media_report)
+                print(f"📱 Отправлено уведомление в Telegram (обнаружены изменения)")
+            else:
+                print(f"📱 Уведомление не отправлено (изменений не обнаружено)")
     elif args.cmd == "watch":
         print("Запускаем watch…")
 
