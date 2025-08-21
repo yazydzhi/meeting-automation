@@ -26,6 +26,12 @@ data/
 data/raw/*
 !data/.gitkeep
 
+# Sync and media processing state files
+*.sync_status.json
+*.processed_media
+*.compressed.mp3
+*.compressed.wav
+
 # Test results and temporary files
 *.log
 *.tmp
