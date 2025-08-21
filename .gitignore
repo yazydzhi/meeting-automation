@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+
+# Envs
+venv/
+.env
+.venv
+.venv-init/
+
+# Editors
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+
+# Data
+data/raw/*
+!data/.gitkeep
