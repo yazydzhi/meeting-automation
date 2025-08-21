@@ -27,6 +27,14 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 
+# Local modules
+try:
+    from src.notion_templates import create_customized_template, create_page_with_template
+except ImportError:
+    # Fallback if module not found
+    create_customized_template = None
+    create_page_with_template = None
+
 # ---------------------------------------------------------------------------
 # Path expansion helper
 # ---------------------------------------------------------------------------
@@ -309,7 +317,7 @@ def create_or_update_notion_page(
     drive_link: str,
     event_id: str,
 ) -> str:
-    """Создаёт или обновляет страницу в Notion."""
+    """Создаёт или обновляет страницу в Notion с применением шаблона."""
     token = env["NOTION_TOKEN"]
     database_id = env["NOTION_DATABASE_ID"]
 
@@ -388,21 +396,19 @@ def create_or_update_notion_page(
         
         return page_id
     else:
-        # Создаём новую страницу
-        print(f"➕ Создаём новую страницу для: {title}")
+        # Создаём новую страницу с шаблоном
+        print(f"➕ Создаём новую страницу с шаблоном для: {title}")
         
-        create_data = {
-            "parent": {"database_id": database_id},
-            "properties": {
-                NOTION_PROP["title"]: {
-                    "title": [{"text": {"content": title}}]
-                },
-                NOTION_PROP["calendar"]: {
-                    "select": {"name": "Personal"}
-                },
-                NOTION_PROP["event_id"]: {
-                    "rich_text": [{"text": {"content": event_id}}]
-                }
+        # Подготавливаем свойства для страницы
+        properties = {
+            NOTION_PROP["title"]: {
+                "title": [{"text": {"content": title}}]
+            },
+            NOTION_PROP["calendar"]: {
+                "select": {"name": "Personal"}
+            },
+            NOTION_PROP["event_id"]: {
+                "rich_text": [{"text": {"content": event_id}}]
             }
         }
         
@@ -410,28 +416,64 @@ def create_or_update_notion_page(
         if start_iso:
             try:
                 start_dt = dt.datetime.fromisoformat(start_iso.replace('Z', '+00:00'))
-                create_data["properties"][NOTION_PROP["date"]] = {
+                properties[NOTION_PROP["date"]] = {
                     "date": {"start": start_dt.isoformat()}
                 }
             except:
                 pass
         
         if attendees:
-            create_data["properties"][NOTION_PROP["attendees"]] = {
+            properties[NOTION_PROP["attendees"]] = {
                 "rich_text": [{"text": {"content": ", ".join(attendees)}}]
             }
         
         if meeting_link:
-            create_data["properties"][NOTION_PROP["meeting_link"]] = {
+            properties[NOTION_PROP["meeting_link"]] = {
                 "url": meeting_link
             }
         
         if drive_link:
-            create_data["properties"][NOTION_PROP["drive_folder"]] = {
+            properties[NOTION_PROP["drive_folder"]] = {
                 "url": drive_link
             }
 
+        # Пытаемся использовать шаблоны, если модуль доступен
+        if create_page_with_template and create_customized_template:
+            try:
+                # Создаем кастомизированный шаблон
+                template = create_customized_template(
+                    title=title,
+                    start_time=start_iso or "",
+                    end_time=end_iso or "",
+                    attendees=attendees,
+                    meeting_link=meeting_link or "",
+                    drive_link=drive_link or ""
+                )
+                
+                # Создаем страницу с шаблоном
+                page_id = create_page_with_template(
+                    notion_token=token,
+                    database_id=database_id,
+                    properties=properties,
+                    template=template
+                )
+                
+                if page_id:
+                    print(f"✅ Страница создана с шаблоном: {page_id}")
+                    return page_id
+                else:
+                    print("⚠️ Не удалось создать страницу с шаблоном, используем стандартный метод")
+                    
+            except Exception as e:
+                print(f"⚠️ Ошибка при создании страницы с шаблоном: {e}, используем стандартный метод")
+        
+        # Fallback: создаем страницу стандартным способом
         try:
+            create_data = {
+                "parent": {"database_id": database_id},
+                "properties": properties
+            }
+            
             r = requests.post("https://api.notion.com/v1/pages", headers=headers, json=create_data)
             r.raise_for_status()
             page_data = r.json()
