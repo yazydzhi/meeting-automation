@@ -74,3 +74,4 @@ env.*
 .env.*
 
 # Keep example configs
+!env.*.example
