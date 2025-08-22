@@ -1,174 +1,223 @@
 #!/bin/bash
 
-# Скрипт управления сервисом автоматизации встреч
-# Поддерживает macOS (launchd) и Linux (systemd)
+# Скрипт для управления сервисом автоматизации встреч
+# Поддерживает команды: start, stop, restart, status, logs
 
-set -e
+SERVICE_NAME="com.yazydzhi.meeting-automation"
+PLIST_PATH="launchd/${SERVICE_NAME}.plist"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
-SERVICE_NAME="meeting-automation"
+# Цвета для вывода
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
 
-# Определяем ОС
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    OS="macos"
-elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
-    OS="linux"
-else
-    echo "❌ Неподдерживаемая ОС: $OSTYPE"
-    exit 1
-fi
-
-# Функция для macOS
-macos_control() {
-    local action="$1"
-    local plist="$HOME/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist"
+# Функция для вывода цветного текста
+print_status() {
+    local status=$1
+    local message=$2
     
-    case "$action" in
-        start)
-            echo "🚀 Запуск сервиса..."
-            launchctl load "$plist" 2>/dev/null || true
-            launchctl start com.yazydzhi.meeting-automation
-            echo "✅ Сервис запущен"
+    case $status in
+        "success")
+            echo -e "${GREEN}✅ $message${NC}"
             ;;
-        stop)
-            echo "🛑 Остановка сервиса..."
-            launchctl stop com.yazydzhi.meeting-automation
-            launchctl unload "$plist" 2>/dev/null || true
-            echo "✅ Сервис остановлен"
+        "error")
+            echo -e "${RED}❌ $message${NC}"
             ;;
-        restart)
-            echo "🔄 Перезапуск сервиса..."
-            launchctl stop com.yazydzhi.meeting-automation 2>/dev/null || true
-            launchctl unload "$plist" 2>/dev/null || true
-            sleep 2
-            launchctl load "$plist"
-            launchctl start com.yazydzhi.meeting-automation
-            echo "✅ Сервис перезапущен"
+        "warning")
+            echo -e "${YELLOW}⚠️  $message${NC}"
             ;;
-        status)
-            echo "📊 Статус сервиса:"
-            if launchctl list | grep -q "com.yazydzhi.meeting-automation"; then
-                echo "✅ Сервис запущен"
-                launchctl list | grep "com.yazydzhi.meeting-automation"
-            else
-                echo "❌ Сервис не запущен"
-            fi
-            ;;
-        logs)
-            echo "📋 Последние логи сервиса:"
-            if [[ -f "$PROJECT_DIR/logs/service.log" ]]; then
-                tail -n 50 "$PROJECT_DIR/logs/service.log"
-            else
-                echo "❌ Файл логов не найден"
-            fi
-            ;;
-        follow-logs)
-            echo "📋 Отслеживание логов в реальном времени (Ctrl+C для выхода):"
-            if [[ -f "$PROJECT_DIR/logs/service.log" ]]; then
-                tail -f "$PROJECT_DIR/logs/service.log"
-            else
-                echo "❌ Файл логов не найден"
-            fi
-            ;;
-        *)
-            echo "❌ Неизвестное действие: $action"
-            show_help
-            exit 1
+        "info")
+            echo -e "${BLUE}ℹ️  $message${NC}"
             ;;
     esac
 }
 
-# Функция для Linux
-linux_control() {
-    local action="$1"
-    
-    case "$action" in
-        start)
-            echo "🚀 Запуск сервиса..."
-            sudo systemctl start meeting-automation
-            echo "✅ Сервис запущен"
-            ;;
-        stop)
-            echo "🛑 Остановка сервиса..."
-            sudo systemctl stop meeting-automation
-            echo "✅ Сервис остановлен"
-            ;;
-        restart)
-            echo "🔄 Перезапуск сервиса..."
-            sudo systemctl restart meeting-automation
-            echo "✅ Сервис перезапущен"
-            ;;
-        status)
-            echo "📊 Статус сервиса:"
-            sudo systemctl status meeting-automation --no-pager
-            ;;
-        logs)
-            echo "📋 Последние логи сервиса:"
-            sudo journalctl -u meeting-automation --no-pager -n 50
-            ;;
-        follow-logs)
-            echo "📋 Отслеживание логов в реальном времени (Ctrl+C для выхода):"
-            sudo journalctl -u meeting-automation -f
-            ;;
-        enable)
-            echo "🔧 Включение автозапуска сервиса..."
-            sudo systemctl enable meeting-automation
-            echo "✅ Автозапуск включен"
-            ;;
-        disable)
-            echo "🔧 Отключение автозапуска сервиса..."
-            sudo systemctl disable meeting-automation
-            echo "✅ Автозапуск отключен"
-            ;;
-        *)
-            echo "❌ Неизвестное действие: $action"
-            show_help
-            exit 1
-            ;;
-    esac
+# Функция для проверки статуса сервиса
+check_service_status() {
+    if launchctl list | grep -q "$SERVICE_NAME"; then
+        return 0  # Сервис запущен
+    else
+        return 1  # Сервис остановлен
+    fi
 }
 
-# Показать справку
-show_help() {
-    echo "🔧 Управление сервисом автоматизации встреч"
-    echo ""
-    echo "Использование: $0 <действие>"
-    echo ""
-    echo "Действия:"
-    echo "  start         - Запустить сервис"
-    echo "  stop          - Остановить сервис"
-    echo "  restart       - Перезапустить сервис"
-    echo "  status        - Показать статус"
-    echo "  logs          - Показать последние логи"
-    echo "  follow-logs   - Отслеживать логи в реальном времени"
+# Функция для запуска сервиса
+start_service() {
+    print_status "info" "Запуск сервиса автоматизации встреч..."
     
-    if [[ "$OS" == "linux" ]]; then
-        echo "  enable        - Включить автозапуск"
-        echo "  disable       - Отключить автозапуск"
+    if check_service_status; then
+        print_status "warning" "Сервис уже запущен"
+        return 0
     fi
     
+    cd "$PROJECT_DIR"
+    
+    if [ ! -f "$PLIST_PATH" ]; then
+        print_status "error" "Файл конфигурации не найден: $PLIST_PATH"
+        return 1
+    fi
+    
+    # Создаем директорию для логов
+    mkdir -p logs
+    
+    # Загружаем сервис
+    if launchctl load "$PLIST_PATH"; then
+        print_status "success" "Сервис успешно запущен"
+        
+        # Ждем немного и проверяем статус
+        sleep 2
+        if check_service_status; then
+            print_status "success" "Сервис работает и обрабатывает аккаунты"
+        else
+            print_status "error" "Сервис не запустился корректно"
+            return 1
+        fi
+    else
+        print_status "error" "Ошибка запуска сервиса"
+        return 1
+    fi
+}
+
+# Функция для остановки сервиса
+stop_service() {
+    print_status "info" "Остановка сервиса автоматизации встреч..."
+    
+    if ! check_service_status; then
+        print_status "warning" "Сервис уже остановлен"
+        return 0
+    fi
+    
+    cd "$PROJECT_DIR"
+    
+    # Останавливаем сервис
+    if launchctl unload "$PLIST_PATH"; then
+        print_status "success" "Сервис успешно остановлен"
+    else
+        print_status "error" "Ошибка остановки сервиса"
+        return 1
+    fi
+}
+
+# Функция для перезапуска сервиса
+restart_service() {
+    print_status "info" "Перезапуск сервиса автоматизации встреч..."
+    
+    stop_service
+    if [ $? -eq 0 ]; then
+        sleep 2
+        start_service
+    else
+        print_status "error" "Не удалось остановить сервис для перезапуска"
+        return 1
+    fi
+}
+
+# Функция для проверки статуса
+show_status() {
+    print_status "info" "Статус сервиса автоматизации встреч:"
+    
+    if check_service_status; then
+        print_status "success" "Сервис запущен и работает"
+        
+        # Показываем информацию о процессе
+        echo ""
+        print_status "info" "Информация о процессе:"
+        ps aux | grep "service_manager.py" | grep -v grep | while read line; do
+            echo "   $line"
+        done
+        
+        # Показываем последние логи
+        echo ""
+        print_status "info" "Последние записи в логе:"
+        if [ -f "logs/service.log" ]; then
+            tail -5 logs/service.log | sed 's/^/   /'
+        else
+            echo "   Лог файл не найден"
+        fi
+        
+    else
+        print_status "error" "Сервис остановлен"
+    fi
+}
+
+# Функция для показа логов
+show_logs() {
+    local lines=${1:-20}
+    
+    print_status "info" "Показ последних $lines строк лога:"
+    
+    if [ -f "logs/service.log" ]; then
+        tail -n "$lines" logs/service.log
+    else
+        print_status "error" "Лог файл не найден: logs/service.log"
+        return 1
+    fi
+}
+
+# Функция для показа ошибок
+show_errors() {
+    local lines=${1:-20}
+    
+    print_status "info" "Показ последних $lines строк лога ошибок:"
+    
+    if [ -f "logs/service_error.log" ]; then
+        tail -n "$lines" logs/service_error.log
+    else
+        print_status "error" "Лог файл ошибок не найден: logs/service_error.log"
+        return 1
+    fi
+}
+
+# Функция для показа помощи
+show_help() {
+    echo "Использование: $0 {start|stop|restart|status|logs|errors|help}"
+    echo ""
+    echo "Команды:"
+    echo "  start     - Запустить сервис"
+    echo "  stop      - Остановить сервис"
+    echo "  restart   - Перезапустить сервис"
+    echo "  status    - Показать статус сервиса"
+    echo "  logs      - Показать последние записи лога"
+    echo "  errors    - Показать последние ошибки"
+    echo "  help      - Показать эту справку"
     echo ""
     echo "Примеры:"
     echo "  $0 start"
     echo "  $0 status"
-    echo "  $0 follow-logs"
+    echo "  $0 logs 50"
+    echo "  $0 errors 10"
 }
 
 # Основная логика
-if [[ $# -eq 0 ]]; then
-    show_help
-    exit 1
-fi
-
-action="$1"
-
-echo "🖥️  Операционная система: $OS"
-echo "📁 Директория проекта: $PROJECT_DIR"
-echo ""
-
-if [[ "$OS" == "macos" ]]; then
-    macos_control "$action"
-elif [[ "$OS" == "linux" ]]; then
-    linux_control "$action"
-fi
+case "${1:-help}" in
+    start)
+        start_service
+        ;;
+    stop)
+        stop_service
+        ;;
+    restart)
+        restart_service
+        ;;
+    status)
+        show_status
+        ;;
+    logs)
+        show_logs "$2"
+        ;;
+    errors)
+        show_errors "$2"
+        ;;
+    help|--help|-h)
+        show_help
+        ;;
+    *)
+        print_status "error" "Неизвестная команда: $1"
+        echo ""
+        show_help
+        exit 1
+        ;;
+esac
