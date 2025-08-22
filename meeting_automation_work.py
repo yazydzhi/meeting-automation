@@ -25,6 +25,7 @@ try:
     from notion_templates import create_page_with_template
     from media_processor import get_media_processor
     from drive_sync import get_drive_sync
+    from audio_processor import AudioProcessor
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
@@ -1347,6 +1348,135 @@ def process_work_media_files(max_folders: int = 5, output_format: str = 'mp3', q
         logger.error(f"❌ Критическая ошибка медиа обработки: {e}")
         return {'processed': 0, 'synced': 0, 'cleanup': 0, 'errors': 1, 'details': []}
 
+
+def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', cleanup: bool = False) -> Dict[str, Any]:
+    """Обработать аудио файлы для рабочего аккаунта с Whisper."""
+    try:
+        logger.info("🎤 Начинаю обработку аудио файлов для рабочего аккаунта...")
+        
+        # Получаем провайдер Google Drive
+        drive_provider = get_work_drive_provider()
+        if not drive_provider:
+            logger.warning("⚠️ Провайдер Google Drive недоступен, пропускаю аудио обработку")
+            return {'processed': 0, 'transcribed': 0, 'errors': 0, 'details': []}
+        
+        # Получаем список папок
+        folders = drive_provider.list_files()
+        work_folders = [f for f in folders if f.mime_type == 'application/vnd.google-apps.folder']
+        
+        logger.info(f"📁 Найдено рабочих папок: {len(work_folders)}")
+        
+        # Инициализируем аудио процессор
+        try:
+            audio_processor = AudioProcessor('env.work')
+            logger.info("✅ Аудио процессор инициализирован")
+        except Exception as e:
+            logger.error(f"❌ Ошибка инициализации аудио процессора: {e}")
+            return {'processed': 0, 'transcribed': 0, 'errors': 1, 'details': []}
+        
+        # Обрабатываем папки
+        total_processed = 0
+        total_transcribed = 0
+        total_errors = 0
+        audio_details = []
+        
+        for folder in work_folders[:max_folders]:  # Обрабатываем последние max_folders папок
+            try:
+                folder_name = folder.name
+                logger.info(f"🔄 Обрабатываю папку: {folder_name}")
+                
+                # Получаем файлы в папке
+                folder_files = drive_provider.list_files(folder.file_id)
+                audio_files = [f for f in folder_files if 'audio' in f.mime_type or f.name.endswith(('.mp3', '.wav', '.m4a'))]
+                
+                if audio_files:
+                    logger.info(f"🎤 Найдено аудио файлов: {len(audio_files)}")
+                    
+                    # Обрабатываем аудио файлы
+                    folder_processed = 0
+                    folder_transcribed = 0
+                    start_time = time.time()
+                    
+                    for audio_file in audio_files:
+                        try:
+                            logger.info(f"🎤 Обрабатываю аудио: {audio_file.name}")
+                            
+                            # Получаем локальный путь к файлу
+                            local_audio_path = audio_file.local_path
+                            if not local_audio_path or not os.path.exists(local_audio_path):
+                                logger.warning(f"⚠️ Локальный путь недоступен: {audio_file.name}")
+                                continue
+                            
+                            # Проверяем, не обработан ли уже файл
+                            output_dir = Path(local_audio_path).parent
+                            transcript_name = Path(audio_file.name).stem + f"_transcript.{output_format}"
+                            transcript_path = output_dir / transcript_name
+                            
+                            if transcript_path.exists():
+                                logger.info(f"✅ Транскрипт уже существует: {transcript_name}")
+                                folder_processed += 1
+                                continue
+                            
+                            # Обрабатываем аудио с Whisper
+                            logger.info(f"🎤 Транскрипция {audio_file.name}...")
+                            result = audio_processor.process_audio_file(str(local_audio_path), output_format)
+                            
+                            if result and result.get('transcription'):
+                                folder_processed += 1
+                                folder_transcribed += 1
+                                logger.info(f"✅ Транскрипция завершена: {len(result['transcription'])} участников")
+                            else:
+                                logger.warning(f"⚠️ Транскрипция не удалась: {audio_file.name}")
+                                
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка обработки аудио {audio_file.name}: {e}")
+                            total_errors += 1
+                            continue
+                    
+                    # Статистика папки
+                    processing_time = time.time() - start_time
+                    audio_details.append({
+                        'folder': folder_name,
+                        'files_found': len(audio_files),
+                        'files_processed': folder_processed,
+                        'files_transcribed': folder_transcribed,
+                        'processing_time': processing_time
+                    })
+                    
+                    total_processed += folder_processed
+                    total_transcribed += folder_transcribed
+                    
+                else:
+                    logger.info(f"📁 В папке {folder_name} аудио файлов не найдено")
+                    
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки папки {folder_name}: {e}")
+                total_errors += 1
+                continue
+        
+        # Очистка временных файлов если нужно
+        if cleanup:
+            try:
+                audio_processor.cleanup_temp_files()
+                logger.info("🧹 Временные аудио файлы очищены")
+            except Exception as e:
+                logger.warning(f"⚠️ Не удалось очистить временные файлы: {e}")
+        
+        # Формируем результат
+        result = {
+            'processed': total_processed,
+            'transcribed': total_transcribed,
+            'errors': total_errors,
+            'details': audio_details
+        }
+        
+        logger.info(f"📊 Статистика аудио обработки: {result}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка аудио обработки: {e}")
+        return {'processed': 0, 'transcribed': 0, 'errors': 1, 'details': []}
+
 def create_work_telegram_report(calendar_stats: Dict[str, Any], media_stats: Dict[str, Any] = None) -> str:
     """Создать отчет для Telegram о работе с рабочим аккаунтом."""
     try:
@@ -1402,17 +1532,33 @@ def create_work_telegram_report(calendar_stats: Dict[str, Any], media_stats: Dic
         
         # Статистика медиа (если есть)
         if media_stats:
-            report += "🎬 *Медиа файлы:*\n"
-            report += f"   📁 Папок обработано: {len(media_stats['details'])}\n"
-            report += f"   📄 Файлов синхронизировано: {media_stats['synced']}\n"
-            report += f"   ❌ Ошибки: {media_stats['errors']}\n\n"
+            # Определяем тип статистики
+            if 'transcribed' in media_stats:
+                # Аудио статистика
+                report += "🎤 *Аудио файлы:*\n"
+                report += f"   📁 Папок обработано: {len(media_stats['details'])}\n"
+                report += f"   📄 Файлов обработано: {media_stats['processed']}\n"
+                report += f"   🎤 Транскрипций создано: {media_stats['transcribed']}\n"
+                report += f"   ❌ Ошибки: {media_stats['errors']}\n\n"
+            else:
+                # Медиа статистика
+                report += "🎬 *Медиа файлы:*\n"
+                report += f"   📁 Папок обработано: {len(media_stats['details'])}\n"
+                report += f"   📄 Файлов синхронизировано: {media_stats['synced']}\n"
+                report += f"   ❌ Ошибки: {media_stats['errors']}\n\n"
             
             if media_stats['details']:
                 report += "📁 *Обработанные папки:*\n"
                 for detail in media_stats['details']:
                     report += f"   📂 {detail['folder']}\n"
                     report += f"      🎥 Найдено: {detail['files_found']}\n"
-                    report += f"      ✅ Обработано: {detail['files_processed']}\n"
+                    if 'files_transcribed' in detail:
+                        # Аудио детали
+                        report += f"      🎤 Обработано: {detail['files_processed']}\n"
+                        report += f"      📝 Транскрипций: {detail['files_transcribed']}\n"
+                    else:
+                        # Медиа детали
+                        report += f"      ✅ Обработано: {detail['files_processed']}\n"
                     report += f"      ⏱️ Время: {detail['processing_time']:.1f}с\n\n"
         
         return report
@@ -1448,7 +1594,7 @@ def send_work_telegram_notification(report: str):
 def main():
     """Основная функция."""
     parser = argparse.ArgumentParser(description='Автоматизация встреч для рабочего аккаунта')
-    parser.add_argument('command', choices=['prepare', 'media', 'test', 'watch'], 
+    parser.add_argument('command', choices=['prepare', 'media', 'audio', 'test', 'watch'], 
                        help='Команда для выполнения')
     
     # Общие параметры
@@ -1481,6 +1627,10 @@ def main():
     parser.add_argument('--quality', choices=['low', 'medium', 'high', 'ultra'], default='medium',
                        help='Качество обработки медиа')
     
+    # Параметры для команды audio
+    parser.add_argument('--output', choices=['json', 'txt', 'srt'], default='json',
+                       help='Формат вывода транскрипта (по умолчанию: json)')
+    
     # Параметры для команды watch
     parser.add_argument('--interval', type=int, default=300,
                        help='Интервал проверки в секундах (по умолчанию: 300)')
@@ -1512,6 +1662,27 @@ def main():
             logger.info(f"📱 Уведомление отправлено (новых событий: {calendar_stats['new_events']})")
         else:
             logger.info(f"📱 Уведомление не отправлено (новых событий нет, обработано: {calendar_stats['processed']})")
+        
+        # Выводим отчет в консоль
+        print(report)
+        
+    elif args.command == 'audio':
+        # Обрабатываем аудио файлы
+        audio_stats = process_work_audio_files(
+            max_folders=args.folders,
+            output_format=args.output,
+            cleanup=args.cleanup
+        )
+        
+        # Создаем отчет
+        report = create_work_telegram_report({'processed': 0, 'excluded': 0, 'errors': 0, 'details': []}, audio_stats)
+        
+        # Отправляем уведомление только если есть изменения
+        if audio_stats['transcribed'] > 0 or audio_stats['processed'] > 0:
+            send_work_telegram_notification(report)
+            logger.info("📱 Уведомление отправлено (есть изменения)")
+        else:
+            logger.info("📱 Уведомление не отправлено (изменений нет)")
         
         # Выводим отчет в консоль
         print(report)

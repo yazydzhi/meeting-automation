@@ -151,6 +151,21 @@ class ConfigManager:
         logger.info("Конфигурация корректна")
         return True
     
+    def get(self, key: str, default: Any = None) -> Any:
+        """Получить значение конфигурации по ключу."""
+        # Сначала ищем в переменных окружения
+        value = os.getenv(key)
+        if value is not None:
+            return value
+        
+        # Затем ищем в структуре конфигурации
+        if key == 'LOG_LEVEL':
+            return self.config['general'].get('log_level', default)
+        elif key == 'TIMEZONE':
+            return self.config['general'].get('timezone', default)
+        
+        return default
+    
     def get_config_summary(self) -> str:
         """Получить краткое описание конфигурации."""
         summary = "📋 Конфигурация системы:\n\n"

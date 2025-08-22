@@ -149,7 +149,7 @@ def create_summary_report(personal_success: bool, work_success: bool) -> str:
 def main():
     """Основная функция."""
     parser = argparse.ArgumentParser(description='Универсальная автоматизация встреч')
-    parser.add_argument('command', choices=['prepare', 'media', 'test'], 
+    parser.add_argument('command', choices=['prepare', 'media', 'audio', 'test'], 
                        help='Команда для выполнения')
     parser.add_argument('--personal-only', action='store_true',
                        help='Только личный аккаунт')
@@ -169,6 +169,8 @@ def main():
                        help='Только проверка Google Drive')
     parser.add_argument('--quality', choices=['low', 'medium', 'high', 'ultra'], default='medium',
                        help='Качество сжатия видео')
+    parser.add_argument('--output', choices=['json', 'txt', 'srt'], default='json',
+                       help='Формат вывода транскрипта (по умолчанию: json)')
     
     args = parser.parse_args()
     
@@ -204,6 +206,8 @@ def main():
         additional_args.append('--drive-only')
     if args.quality != 'medium':
         additional_args.extend(['--quality', args.quality])
+    if args.output != 'json':
+        additional_args.extend(['--output', args.output])
     
     # Запускаем автоматизацию
     personal_success = False
