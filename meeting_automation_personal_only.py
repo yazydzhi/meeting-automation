@@ -589,7 +589,13 @@ def process_media_in_folders(env: Dict[str, str]) -> Dict[str, Any]:
         
         # Создаем синхронизатор и процессор
         drive_sync = get_drive_sync(drive_svc, env["MEDIA_SYNC_ROOT"])
-        media_processor = get_media_processor(drive_svc, env["MEDIA_OUTPUT_FORMAT"])
+        media_processor = get_media_processor(
+            drive_svc, 
+            env["MEDIA_OUTPUT_FORMAT"],
+            video_compression=env.get("VIDEO_COMPRESSION", "true").lower() == "true",
+            video_quality=env.get("VIDEO_QUALITY", "medium"),
+            video_codec=env.get("VIDEO_CODEC", "h264")
+        )
         
         print("🎬 Начинаю обработку медиа файлов в папках...")
         

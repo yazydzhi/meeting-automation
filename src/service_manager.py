@@ -227,7 +227,13 @@ class MeetingAutomationService:
             
             # Создаем синхронизатор и процессор
             drive_sync = get_drive_sync(drive_svc, self.env["MEDIA_SYNC_ROOT"])
-            media_processor = get_media_processor(drive_svc, self.env["MEDIA_OUTPUT_FORMAT"])
+            media_processor = get_media_processor(
+                drive_svc, 
+                self.env["MEDIA_OUTPUT_FORMAT"],
+                video_compression=self.env.get("VIDEO_COMPRESSION", "true").lower() == "true",
+                video_quality=self.env.get("VIDEO_QUALITY", "medium"),
+                video_codec=self.env.get("VIDEO_CODEC", "h264")
+            )
             
             # Получаем список папок для обработки
             parent_id = self.env.get("PERSONAL_DRIVE_PARENT_ID")
