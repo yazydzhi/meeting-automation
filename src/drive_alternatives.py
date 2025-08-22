@@ -236,7 +236,7 @@ class LocalDriveProvider(DriveProvider):
         self.root_path.mkdir(parents=True, exist_ok=True)
     
     def list_files(self, folder_id: str = None, query: str = None) -> List[DriveFile]:
-        """Получить список файлов из локальной файловой системы."""
+        """Получить список файлов и папок из локальной файловой системы."""
         try:
             if folder_id:
                 folder_path = self.root_path / folder_id
@@ -248,10 +248,10 @@ class LocalDriveProvider(DriveProvider):
             
             files = []
             for item in folder_path.iterdir():
+                stat = item.stat()
+                
                 if item.is_file():
-                    stat = item.stat()
-                    
-                    # Вычисляем MD5 хеш
+                    # Вычисляем MD5 хеш для файлов
                     md5_hash = self._calculate_md5(item)
                     
                     drive_file = DriveFile(
@@ -264,6 +264,21 @@ class LocalDriveProvider(DriveProvider):
                         web_view_link=f"file://{item.absolute()}",
                         local_path=str(item.absolute()),
                         md5_hash=md5_hash
+                    )
+                    files.append(drive_file)
+                    
+                elif item.is_dir():
+                    # Обрабатываем папки
+                    drive_file = DriveFile(
+                        name=item.name,
+                        file_id=str(item.relative_to(self.root_path)),
+                        mime_type='application/vnd.google-apps.folder',  # Стандартный mime-type для папок Google Drive
+                        size=0,  # У папок нет размера
+                        modified_time=datetime.fromtimestamp(stat.st_mtime),
+                        parents=[str(item.parent.relative_to(self.root_path))] if item.parent != self.root_path else [],
+                        web_view_link=f"file://{item.absolute()}",
+                        local_path=str(item.absolute()),
+                        md5_hash=""  # У папок нет хеша
                     )
                     files.append(drive_file)
             
