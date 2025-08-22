@@ -195,10 +195,47 @@ class MeetingAutomationService:
             return {"status": "error", "error": error_msg}
     
     def process_media_files(self) -> Dict[str, int]:
-        """Обработка медиа файлов (заглушка для совместимости)."""
-        self.logger.info("🎬 Проверка медиа файлов...")
-        # В новой системе медиа обработка интегрирована в основные скрипты
-        return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+        """Обработка медиа файлов."""
+        try:
+            self.logger.info("🎬 Проверка медиа файлов...")
+            
+            # Проверяем, нужно ли обрабатывать медиа
+            current_time = time.time()
+            if hasattr(self, 'last_media_check') and current_time - self.last_media_check < self.media_check_interval:
+                self.logger.info("⏰ Медиа обработка еще не требуется")
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+            
+            # Запускаем медиа обработку для рабочего аккаунта
+            self.logger.info("🎬 Запуск медиа обработки для рабочего аккаунта...")
+            result = subprocess.run([
+                sys.executable, "meeting_automation_work.py", "media", "--quality", "medium"
+            ], capture_output=True, text=True, timeout=600)
+            
+            if result.returncode == 0:
+                self.logger.info("✅ Медиа обработка завершена успешно")
+                # Парсим результат для получения статистики
+                if "📄 Файлов синхронизировано:" in result.stdout:
+                    # Извлекаем количество обработанных файлов
+                    import re
+                    synced_match = re.search(r"📄 Файлов синхронизировано: (\d+)", result.stdout)
+                    processed_match = re.search(r"📁 Папок обработано: (\d+)", result.stdout)
+                    
+                    synced = int(synced_match.group(1)) if synced_match else 0
+                    processed = int(processed_match.group(1)) if processed_match else 0
+                    
+                    return {"processed": processed, "synced": synced, "cleanup": 0, "errors": 0}
+                else:
+                    return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+            else:
+                self.logger.error(f"❌ Ошибка медиа обработки: {result.stderr}")
+                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error("⏰ Медиа обработка превысила время выполнения")
+            return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка медиа обработки: {e}")
+            return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
     
     def send_telegram_notification(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]):
         """Отправка уведомлений в Telegram (заглушка для совместимости)."""
@@ -216,9 +253,8 @@ class MeetingAutomationService:
             # Запускаем автоматизацию для рабочего аккаунта
             work_stats = self.run_work_automation()
             
-            # Обрабатываем медиа файлы
+            # Обрабатываем медиа файлы (только если прошло достаточно времени)
             media_stats = self.process_media_files()
-            self.last_media_check = time.time()
             
             # Логируем результаты
             self.logger.info(f"📊 Результаты цикла:")

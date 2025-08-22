@@ -9,6 +9,8 @@ import os
 import sys
 import argparse
 import logging
+import time
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List
@@ -26,6 +28,369 @@ try:
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
+
+def create_enhanced_meeting_template(
+    title: str,
+    start_time: datetime,
+    end_time: datetime,
+    attendees: List[str],
+    description: str,
+    meeting_links: List[str],
+    meeting_link: str,
+    folder_link: str,
+    location: str
+) -> Dict[str, Any]:
+    """Создать улучшенный шаблон страницы встречи с детальной информацией."""
+    template = {
+        "children": []
+    }
+    
+    # Заголовок встречи
+    template["children"].append({
+        "object": "block",
+        "type": "heading_1",
+        "heading_1": {
+            "rich_text": [
+                {
+                    "type": "text",
+                    "text": {
+                        "content": f"📋 {title}"
+                    }
+                }
+            ]
+        }
+    })
+    
+    # Информация о встрече
+    template["children"].append({
+        "object": "block",
+        "type": "heading_2",
+        "heading_2": {
+            "rich_text": [
+                {
+                    "type": "text",
+                    "text": {
+                        "content": "ℹ️ Информация о встрече"
+                    }
+                }
+            ]
+        }
+    })
+    
+    # Время встречи
+    time_info = f"⏰ {start_time.strftime('%d.%m.%Y %H:%M')} - {end_time.strftime('%H:%M')}"
+    template["children"].append({
+        "object": "block",
+        "type": "callout",
+        "callout": {
+            "icon": {"emoji": "⏰"},
+            "rich_text": [
+                {
+                    "type": "text",
+                    "text": {
+                        "content": time_info
+                    }
+                }
+            ]
+        }
+    })
+    
+    # Место встречи (если есть)
+    if location:
+        template["children"].append({
+            "object": "block",
+            "type": "callout",
+            "callout": {
+                "icon": {"emoji": "📍"},
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": f"📍 {location}"
+                        }
+                    }
+                ]
+            }
+        })
+    
+    # Участники
+    if attendees:
+        template["children"].append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": "👥 Участники"
+                        }
+                    }
+                ]
+            }
+        })
+        
+        for attendee in attendees:
+            template["children"].append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": attendee
+                            }
+                        }
+                    ]
+                }
+            })
+    
+    # Ссылки на встречу
+    all_links = []
+    if meeting_link:
+        all_links.append(meeting_link)
+    if meeting_links:
+        all_links.extend(meeting_links)
+    
+    if all_links:
+        template["children"].append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": "🔗 Ссылки"
+                        }
+                    }
+                ]
+            }
+        })
+        
+        for link in all_links:
+            template["children"].append({
+                "object": "block",
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": link
+                            }
+                        }
+                    ]
+                }
+            })
+    
+    # Описание встречи
+    if description:
+        template["children"].append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": "📝 Описание"
+                        }
+                    }
+                ]
+            }
+        })
+        
+        template["children"].append({
+            "object": "block",
+            "type": "paragraph",
+            "paragraph": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": description
+                        }
+                    }
+                ]
+            }
+        })
+    
+    # Папка Google Drive
+    if folder_link:
+        template["children"].append({
+            "object": "block",
+            "type": "heading_2",
+            "heading_2": {
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": "📁 Файлы встречи"
+                        }
+                    }
+                ]
+            }
+        })
+        
+        template["children"].append({
+            "object": "block",
+            "type": "callout",
+            "callout": {
+                "icon": {"emoji": "📁"},
+                "rich_text": [
+                    {
+                        "type": "text",
+                        "text": {
+                            "content": f"📁 Папка с файлами: {folder_link}"
+                        }
+                    }
+                ]
+            }
+        })
+    
+    return template
+
+def should_update_notion_page(event: CalendarEvent, page_id: str) -> bool:
+    """Проверить, нужно ли обновить страницу в Notion."""
+    try:
+        # Пока что всегда возвращаем True для обновления
+        # В будущем можно добавить более детальную проверку изменений
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки необходимости обновления: {e}")
+        return False
+
+def update_work_notion_page(event: CalendarEvent, page_id: str, folder_link: str) -> bool:
+    """Обновить существующую страницу в Notion."""
+    try:
+        logger.info(f"🔄 Обновление страницы в Notion: {page_id}")
+        
+        # Обрабатываем участников для отображения ФИО и email
+        attendees_info = []
+        if event.attendees:
+            for attendee in event.attendees:
+                if '@' in attendee:
+                    name = attendee.split('@')[0]
+                    attendees_info.append(f"{name} ({attendee})")
+                else:
+                    attendees_info.append(attendee)
+        
+        # Обрабатываем описание встречи
+        meeting_description = ""
+        meeting_links = []
+        if event.description:
+            import re
+            url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
+            urls = re.findall(url_pattern, event.description)
+            
+            for url in urls:
+                if 'meet.google.com' in url or 'zoom.us' in url or 'telemost' in url.lower():
+                    meeting_links.append(url)
+            
+            clean_description = re.sub(url_pattern, '', event.description).strip()
+            meeting_description = clean_description
+        
+        # Создаем обновленный шаблон
+        updated_template = create_enhanced_meeting_template(
+            event.title,
+            event.start,
+            event.end,
+            attendees_info,
+            meeting_description,
+            meeting_links,
+            event.meeting_link,
+            folder_link,
+            event.location
+        )
+        
+        # Обновляем страницу через API Notion
+        notion_token = os.getenv('NOTION_TOKEN')
+        if not notion_token:
+            logger.error("❌ Не настроен NOTION_TOKEN")
+            return False
+        
+        # Сначала очищаем существующее содержимое
+        if clear_notion_page_content(notion_token, page_id):
+            # Затем добавляем новое содержимое
+            if apply_notion_template(notion_token, page_id, updated_template):
+                logger.info(f"✅ Страница успешно обновлена: {page_id}")
+                return True
+            else:
+                logger.error(f"❌ Не удалось применить обновленный шаблон: {page_id}")
+                return False
+        else:
+            logger.error(f"❌ Не удалось очистить содержимое страницы: {page_id}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка обновления страницы в Notion: {e}")
+        return False
+
+def clear_notion_page_content(notion_token: str, page_id: str) -> bool:
+    """Очистить содержимое страницы в Notion."""
+    try:
+        import requests
+        
+        headers = {
+            "Authorization": f"Bearer {notion_token}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json",
+        }
+        
+        # Получаем список блоков страницы
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code != 200:
+            logger.error(f"❌ Не удалось получить блоки страницы: {response.status_code}")
+            return False
+        
+        blocks = response.json().get("results", [])
+        
+        # Удаляем все блоки (кроме первого - заголовка)
+        for block in blocks[1:]:
+            delete_url = f"https://api.notion.com/v1/blocks/{block['id']}"
+            delete_response = requests.delete(delete_url, headers=headers)
+            
+            if delete_response.status_code != 200:
+                logger.warning(f"⚠️ Не удалось удалить блок {block['id']}: {delete_response.status_code}")
+        
+        logger.info(f"✅ Содержимое страницы очищено: {page_id}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка очистки содержимого страницы: {e}")
+        return False
+
+def apply_notion_template(notion_token: str, page_id: str, template: Dict[str, Any]) -> bool:
+    """Применить шаблон к странице в Notion."""
+    try:
+        import requests
+        
+        headers = {
+            "Authorization": f"Bearer {notion_token}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json",
+        }
+        
+        # Добавляем блоки шаблона к странице
+        url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+        
+        response = requests.patch(url, headers=headers, json=template)
+        
+        if response.status_code == 200:
+            logger.info(f"✅ Шаблон успешно применен к странице: {page_id}")
+            return True
+        else:
+            logger.error(f"❌ Ошибка применения шаблона: {response.status_code}")
+            logger.error(f"   Тело ответа: {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка применения шаблона: {e}")
+        return False
 
 def load_personal_exclusions() -> List[str]:
     """Загрузить список личных ключевых слов для исключения из файла."""
@@ -310,6 +675,34 @@ def create_work_notion_page(event: CalendarEvent, folder_link: str = "") -> str:
             "calendar_source": event.calendar_source
         }
         
+        # Обрабатываем участников для отображения ФИО и email
+        attendees_info = []
+        if event.attendees:
+            for attendee in event.attendees:
+                if '@' in attendee:
+                    # Пытаемся извлечь имя из email
+                    name = attendee.split('@')[0]
+                    attendees_info.append(f"{name} ({attendee})")
+                else:
+                    attendees_info.append(attendee)
+        
+        # Обрабатываем описание встречи
+        meeting_description = ""
+        meeting_links = []
+        if event.description:
+            # Ищем ссылки в описании
+            import re
+            url_pattern = r'https?://[^\s<>"]+|www\.[^\s<>"]+'
+            urls = re.findall(url_pattern, event.description)
+            
+            for url in urls:
+                if 'meet.google.com' in url or 'zoom.us' in url or 'telemost' in url.lower():
+                    meeting_links.append(url)
+            
+            # Убираем ссылки из описания для основного текста
+            clean_description = re.sub(url_pattern, '', event.description).strip()
+            meeting_description = clean_description
+        
         # Создаем страницу в Notion
         notion_token = os.getenv('NOTION_TOKEN')
         database_id = os.getenv('NOTION_DATABASE_ID')
@@ -368,13 +761,13 @@ def create_work_notion_page(event: CalendarEvent, folder_link: str = "") -> str:
                 }
             }
         
-        # Добавляем участников
+        # Добавляем участников с ФИО и email
         if event.attendees and "Attendees" in schema:
             page_properties["Attendees"] = {
                 "rich_text": [
                     {
                         "text": {
-                            "content": ", ".join(event.attendees)
+                            "content": ", ".join(attendees_info) if attendees_info else ", ".join(event.attendees)
                         }
                     }
                 ]
@@ -406,11 +799,24 @@ def create_work_notion_page(event: CalendarEvent, folder_link: str = "") -> str:
         
         logger.info(f"🔧 Свойства страницы: {list(page_properties.keys())}")
         
+        # Создаем улучшенный шаблон с детальной информацией о встрече
+        enhanced_template = create_enhanced_meeting_template(
+            event.title,
+            event.start,
+            event.end,
+            attendees_info,
+            meeting_description,
+            meeting_links,
+            event.meeting_link,
+            folder_link,
+            event.location
+        )
+        
         page_id = create_page_with_template(
             notion_token, 
             database_id, 
             page_properties,  # properties
-            template          # template
+            enhanced_template  # enhanced template
         )
         
         if page_id:
@@ -465,11 +871,22 @@ def process_work_event(event: CalendarEvent, drive_provider) -> Dict[str, Any]:
         database_id = os.getenv('NOTION_DATABASE_ID')
         
         notion_page_created = False
+        notion_page_updated = False
         if notion_token and database_id:
             existing_page_id = check_notion_page_exists(notion_token, database_id, event_id)
             if existing_page_id:
                 notion_page_id = existing_page_id
                 logger.info(f"📄 Используем существующую страницу в Notion: {notion_page_id}")
+                
+                # Проверяем, нужно ли обновить страницу (если изменились данные)
+                if should_update_notion_page(event, existing_page_id):
+                    logger.info(f"🔄 Обновляю страницу в Notion: {existing_page_id}")
+                    update_success = update_work_notion_page(event, existing_page_id, folder_link)
+                    notion_page_updated = update_success
+                    if update_success:
+                        logger.info(f"✅ Страница обновлена: {existing_page_id}")
+                    else:
+                        logger.warning(f"⚠️ Не удалось обновить страницу: {existing_page_id}")
             else:
                 notion_page_id = create_work_notion_page(event, folder_link)
                 notion_page_created = bool(notion_page_id)
@@ -488,9 +905,10 @@ def process_work_event(event: CalendarEvent, drive_provider) -> Dict[str, Any]:
             'has_meeting_link': bool(event.meeting_link),
             'drive_folder_created': folder_created,
             'notion_page_id': notion_page_id,
-            'notion_page_created': notion_page_created,  # Новое поле
+            'notion_page_created': notion_page_created,
+            'notion_page_updated': notion_page_updated,  # Новое поле
             'drive_folder_link': folder_link,
-            'event_id': event_id  # Новое поле
+            'event_id': event_id
         }
         
         logger.info(f"✅ Событие обработано: {event.title}")
@@ -647,14 +1065,123 @@ def process_work_media_files(max_folders: int = 5, output_format: str = 'mp3', q
                 if video_files:
                     logger.info(f"🎥 Найдено видео файлов: {len(video_files)}")
                     
-                    # Здесь можно добавить обработку видео файлов
-                    # Для рабочего аккаунта можно использовать локальную обработку
+                    # Обрабатываем видео файлы
+                    folder_processed = 0
+                    start_time = time.time()
+                    
+                    for video_file in video_files:
+                        try:
+                            logger.info(f"🎬 Обрабатываю видео: {video_file.name}")
+                            
+                            # Получаем локальный путь к файлу
+                            local_video_path = video_file.local_path
+                            if not local_video_path or not os.path.exists(local_video_path):
+                                logger.warning(f"⚠️ Локальный путь недоступен: {video_file.name}")
+                                continue
+                            
+                            # Создаем пути для выходных файлов
+                            output_dir = Path(local_video_path).parent
+                            
+                            # 1. Сжатое видео
+                            video_output_name = Path(video_file.name).stem + f"_compressed.mp4"
+                            video_output_path = output_dir / video_output_name
+                            
+                            # 2. Аудио файл
+                            audio_output_name = Path(video_file.name).stem + f"_compressed.{output_format}"
+                            audio_output_path = output_dir / audio_output_name
+                            
+                            # Проверяем, не обработаны ли уже файлы
+                            if video_output_path.exists() and audio_output_path.exists():
+                                logger.info(f"✅ Файлы уже обработаны: {video_output_name}, {audio_output_name}")
+                                folder_processed += 1
+                                continue
+                            
+                            # Загружаем настройки видео компрессии из env.work
+                            video_compression = os.getenv('VIDEO_COMPRESSION', 'true').lower() == 'true'
+                            video_quality = os.getenv('VIDEO_QUALITY', 'medium')
+                            video_codec = os.getenv('VIDEO_CODEC', 'h264')
+                            
+                            logger.info(f"🎬 Настройки компрессии: compression={video_compression}, quality={video_quality}, codec={video_codec}")
+                            
+                            # 1. Сжимаем видео (если включено)
+                            if video_compression:
+                                logger.info(f"🎥 Сжатие видео {video_file.name}...")
+                                
+                                # Настройки качества для разных уровней
+                                if video_quality == 'low':
+                                    crf = '28'  # Высокое сжатие
+                                    preset = 'ultrafast'
+                                elif video_quality == 'medium':
+                                    crf = '23'  # Среднее сжатие
+                                    preset = 'fast'
+                                elif video_quality == 'high':
+                                    crf = '18'  # Низкое сжатие
+                                    preset = 'medium'
+                                else:  # ultra
+                                    crf = '15'  # Минимальное сжатие
+                                    preset = 'slow'
+                                
+                                video_cmd = [
+                                    'ffmpeg', '-i', local_video_path,
+                                    '-c:v', 'libx264' if video_codec == 'h264' else 'libx265',
+                                    '-preset', preset,
+                                    '-crf', crf,
+                                    '-c:a', 'aac',
+                                    '-b:a', '128k',
+                                    '-movflags', '+faststart',
+                                    '-y',
+                                    str(video_output_path)
+                                ]
+                                
+                                logger.info(f"🔄 Команда сжатия: {' '.join(video_cmd)}")
+                                video_result = subprocess.run(video_cmd, capture_output=True, text=True, timeout=3600)
+                                
+                                if video_result.returncode == 0:
+                                    # Получаем размер сжатого файла
+                                    compressed_size = video_output_path.stat().st_size if video_output_path.exists() else 0
+                                    original_size = Path(local_video_path).stat().st_size
+                                    compression_ratio = original_size / compressed_size if compressed_size > 0 else 0
+                                    
+                                    logger.info(f"✅ Видео сжато: {video_output_name}")
+                                    logger.info(f"📊 Размер: {original_size / (1024**3):.1f} ГБ → {compressed_size / (1024**3):.1f} ГБ (сжатие в {compression_ratio:.1f} раз)")
+                                else:
+                                    logger.error(f"❌ Ошибка сжатия видео: {video_result.stderr}")
+                                    video_output_path = None
+                            else:
+                                logger.info("⏭️ Сжатие видео отключено")
+                                video_output_path = None
+                            
+                            # 2. Конвертируем в аудио
+                            logger.info(f"🎵 Конвертация {video_file.name} в {output_format}...")
+                            
+                            audio_cmd = [
+                                'ffmpeg', '-i', local_video_path,
+                                '-vn',  # Без видео
+                                '-acodec', 'libmp3lame' if output_format == 'mp3' else 'pcm_s16le',
+                                '-ab', '128k' if quality == 'low' else '192k' if quality == 'medium' else '320k',
+                                '-y',
+                                str(audio_output_path)
+                            ]
+                            
+                            audio_result = subprocess.run(audio_cmd, capture_output=True, text=True, timeout=1800)
+                            
+                            if audio_result.returncode == 0:
+                                logger.info(f"✅ Аудио создано: {audio_output_name}")
+                                folder_processed += 1
+                                total_processed += 1
+                            else:
+                                logger.error(f"❌ Ошибка конвертации в аудио: {audio_result.stderr}")
+                                
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка обработки {video_file.name}: {e}")
+                    
+                    processing_time = time.time() - start_time
                     
                     media_details.append({
                         "folder": folder_name,
                         "files_found": len(video_files),
-                        "files_processed": 0,  # Пока не реализовано
-                        "processing_time": 0
+                        "files_processed": folder_processed,
+                        "processing_time": processing_time
                     })
                     
                     total_synced += len(video_files)

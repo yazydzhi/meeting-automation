@@ -9,6 +9,8 @@ import os
 import sys
 import argparse
 import logging
+import subprocess
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List
@@ -363,7 +365,7 @@ def process_personal_calendar_events(days: int = 2) -> Dict[str, Any]:
         logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
         return {'processed': 0, 'excluded': 0, 'errors': 1, 'details': []}
 
-def process_personal_media_files() -> Dict[str, Any]:
+def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
     """Обработать медиа файлы для личного аккаунта."""
     try:
         logger.info("🎬 Начинаю обработку медиа файлов для личного аккаунта...")
@@ -398,14 +400,123 @@ def process_personal_media_files() -> Dict[str, Any]:
                 if video_files:
                     logger.info(f"🎥 Найдено видео файлов: {len(video_files)}")
                     
-                    # Здесь можно добавить обработку видео файлов
-                    # Для личного аккаунта используем стандартную обработку
+                    # Обрабатываем видео файлы
+                    folder_processed = 0
+                    start_time = time.time()
+                    
+                    for video_file in video_files:
+                        try:
+                            logger.info(f"🎬 Обрабатываю видео: {video_file.name}")
+                            
+                            # Получаем локальный путь к файлу
+                            local_video_path = video_file.local_path
+                            if not local_video_path or not os.path.exists(local_video_path):
+                                logger.warning(f"⚠️ Локальный путь недоступен: {video_file.name}")
+                                continue
+                            
+                            # Создаем пути для выходных файлов
+                            output_dir = Path(local_video_path).parent
+                            
+                            # 1. Сжатое видео
+                            video_output_name = Path(video_file.name).stem + f"_compressed.mp4"
+                            video_output_path = output_dir / video_output_name
+                            
+                            # 2. Аудио файл
+                            audio_output_name = Path(video_file.name).stem + f"_compressed.mp3"
+                            audio_output_path = output_dir / audio_output_name
+                            
+                            # Проверяем, не обработаны ли уже файлы
+                            if video_output_path.exists() and audio_output_path.exists():
+                                logger.info(f"✅ Файлы уже обработаны: {video_output_name}, {audio_output_name}")
+                                folder_processed += 1
+                                continue
+                            
+                            # Загружаем настройки видео компрессии из env.personal
+                            video_compression = os.getenv('VIDEO_COMPRESSION', 'true').lower() == 'true'
+                            video_quality = os.getenv('VIDEO_QUALITY', 'medium')
+                            video_codec = os.getenv('VIDEO_CODEC', 'h264')
+                            
+                            logger.info(f"🎬 Настройки компрессии: compression={video_compression}, quality={video_quality}, codec={video_codec}")
+                            
+                            # 1. Сжимаем видео (если включено)
+                            if video_compression:
+                                logger.info(f"🎥 Сжатие видео {video_file.name}...")
+                                
+                                # Настройки качества для разных уровней
+                                if video_quality == 'low':
+                                    crf = '28'  # Высокое сжатие
+                                    preset = 'ultrafast'
+                                elif video_quality == 'medium':
+                                    crf = '23'  # Среднее сжатие
+                                    preset = 'fast'
+                                elif video_quality == 'high':
+                                    crf = '18'  # Низкое сжатие
+                                    preset = 'medium'
+                                else:  # ultra
+                                    crf = '15'  # Минимальное сжатие
+                                    preset = 'slow'
+                                
+                                video_cmd = [
+                                    'ffmpeg', '-i', local_video_path,
+                                    '-c:v', 'libx264' if video_codec == 'h264' else 'libx265',
+                                    '-preset', preset,
+                                    '-crf', crf,
+                                    '-c:a', 'aac',
+                                    '-b:a', '128k',
+                                    '-movflags', '+faststart',
+                                    '-y',
+                                    str(video_output_path)
+                                ]
+                                
+                                logger.info(f"🔄 Команда сжатия: {' '.join(video_cmd)}")
+                                video_result = subprocess.run(video_cmd, capture_output=True, text=True, timeout=3600)
+                                
+                                if video_result.returncode == 0:
+                                    # Получаем размер сжатого файла
+                                    compressed_size = video_output_path.stat().st_size if video_output_path.exists() else 0
+                                    original_size = Path(local_video_path).stat().st_size
+                                    compression_ratio = original_size / compressed_size if compressed_size > 0 else 0
+                                    
+                                    logger.info(f"✅ Видео сжато: {video_output_name}")
+                                    logger.info(f"📊 Размер: {original_size / (1024**3):.1f} ГБ → {compressed_size / (1024**3):.1f} ГБ (сжатие в {compression_ratio:.1f} раз)")
+                                else:
+                                    logger.error(f"❌ Ошибка сжатия видео: {video_result.stderr}")
+                                    video_output_path = None
+                            else:
+                                logger.info("⏭️ Сжатие видео отключено")
+                                video_output_path = None
+                            
+                            # 2. Конвертируем в аудио
+                            logger.info(f"🎵 Конвертация {video_file.name} в mp3...")
+                            
+                            audio_cmd = [
+                                'ffmpeg', '-i', local_video_path,
+                                '-vn',  # Без видео
+                                '-acodec', 'libmp3lame',
+                                '-ab', '192k',  # Среднее качество для личного аккаунта
+                                '-y',
+                                str(audio_output_path)
+                            ]
+                            
+                            audio_result = subprocess.run(audio_cmd, capture_output=True, text=True, timeout=1800)
+                            
+                            if audio_result.returncode == 0:
+                                logger.info(f"✅ Аудио создано: {audio_output_name}")
+                                folder_processed += 1
+                                total_processed += 1
+                            else:
+                                logger.error(f"❌ Ошибка конвертации в аудио: {audio_result.stderr}")
+                                
+                        except Exception as e:
+                            logger.error(f"❌ Ошибка обработки {video_file.name}: {e}")
+                    
+                    processing_time = time.time() - start_time
                     
                     media_details.append({
                         "folder": folder_name,
                         "files_found": len(video_files),
-                        "files_processed": 0,  # Пока не реализовано
-                        "processing_time": 0
+                        "files_processed": folder_processed,
+                        "processing_time": processing_time
                     })
                     
                     total_synced += len(video_files)
@@ -526,6 +637,8 @@ def main():
                        help='Только проверка календаря')
     parser.add_argument('--drive-only', action='store_true',
                        help='Только проверка Google Drive')
+    parser.add_argument('--quality', choices=['low', 'medium', 'high', 'ultra'], default='medium',
+                       help='Качество сжатия видео')
     
     args = parser.parse_args()
     
@@ -560,7 +673,7 @@ def main():
         
     elif args.command == 'media':
         # Обрабатываем медиа файлы
-        media_stats = process_personal_media_files()
+        media_stats = process_personal_media_files(quality=args.quality)
         
         # Создаем отчет
         report = create_personal_telegram_report({'processed': 0, 'excluded': 0, 'errors': 0, 'details': []}, media_stats)

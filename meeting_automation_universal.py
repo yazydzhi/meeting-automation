@@ -167,6 +167,8 @@ def main():
                        help='Только проверка календаря')
     parser.add_argument('--drive-only', action='store_true',
                        help='Только проверка Google Drive')
+    parser.add_argument('--quality', choices=['low', 'medium', 'high', 'ultra'], default='medium',
+                       help='Качество сжатия видео')
     
     args = parser.parse_args()
     
@@ -200,6 +202,8 @@ def main():
         additional_args.append('--calendar-only')
     if args.drive_only:
         additional_args.append('--drive-only')
+    if args.quality != 'medium':
+        additional_args.extend(['--quality', args.quality])
     
     # Запускаем автоматизацию
     personal_success = False
