@@ -87,7 +87,7 @@ pip install -r requirements.txt
 ```bash
 # Google API (стандартный способ)
 GOOGLE_CREDENTIALS=creds/client_secret.json
-PERSONAL_CALENDAR_ID=yazydzhi@gmail.com
+PERSONAL_CALENDAR_ID=your_email@gmail.com
 PERSONAL_DRIVE_PARENT_ID=your_drive_folder_id
 
 # Notion
@@ -216,10 +216,10 @@ chmod +x scripts/*.sh
 
 ```bash
 # Запуск
-launchctl start com.yazydzhi.meeting-automation
+launchctl start com.yourname.meeting-automation
 
 # Остановка
-launchctl stop com.yazydzhi.meeting-automation
+launchctl stop com.yourname.meeting-automation
 
 # Статус
 launchctl list | grep meeting-automation

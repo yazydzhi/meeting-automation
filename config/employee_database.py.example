@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Пример базы данных сотрудников для корректного отображения ФИО участников встреч.
+Содержит структуру сопоставления email адресов с полными ФИО на русском языке.
+
+Скопируйте этот файл в employee_database.py и заполните реальными данными.
+"""
+
+# Словарь сотрудников: email -> (Фамилия, Имя, Отчество)
+EMPLOYEE_DATABASE = {
+    # Примеры структуры данных
+    'example.analyst@company.com': ('Фамилия', 'Имя', 'Отчество'),
+    'example.manager@company.com': ('Фамилия', 'Имя', ''),
+    'example.developer@company.com': ('Фамилия', 'Имя', 'Отчество'),
+}
+
+def get_employee_name(email: str) -> str:
+    """
+    Получить полное ФИО сотрудника по email.
+    
+    Args:
+        email: Email адрес сотрудника
+        
+    Returns:
+        Строка с ФИО в формате "Фамилия Имя Отчество" или email, если ФИО не найдено
+    """
+    if email in EMPLOYEE_DATABASE:
+        surname, name, patronymic = EMPLOYEE_DATABASE[email]
+        if patronymic:
+            return f"{surname} {name} {patronymic}"
+        else:
+            return f"{surname} {name}"
+    
+    # Если ФИО не найдено, пытаемся извлечь имя из email
+    if '@' in email:
+        username = email.split('@')[0]
+        if '.' in username:
+            # Пытаемся разобрать имя.фамилия@domain
+            parts = username.split('.')
+            if len(parts) >= 2:
+                # Первая буква имени + фамилия
+                first_name = parts[0].capitalize()
+                last_name = parts[1].capitalize()
+                return f"{last_name} {first_name}"
+    
+    # Если ничего не получилось, возвращаем email
+    return email
+
+def get_attendees_with_names(emails: list) -> list:
+    """
+    Получить список участников с ФИО.
+    
+    Args:
+        emails: Список email адресов
+        
+    Returns:
+        Список строк в формате "Фамилия Имя (email@domain.com)"
+    """
+    result = []
+    for email in emails:
+        name = get_employee_name(email)
+        if name != email:
+            result.append(f"{name} ({email})")
+        else:
+            result.append(email)
+    return result
+
+def add_employee(email: str, surname: str, name: str, patronymic: str = ""):
+    """
+    Добавить нового сотрудника в базу данных.
+    
+    Args:
+        email: Email адрес сотрудника
+        surname: Фамилия
+        name: Имя
+        patronymic: Отчество (опционально)
+    """
+    EMPLOYEE_DATABASE[email] = (surname, name, patronymic)
+
+# Пример использования
+if __name__ == "__main__":
+    # Тестируем функции
+    test_emails = [
+        'example.analyst@company.com',
+        'example.manager@company.com',
+        'unknown@company.com'
+    ]
+    
+    print("Тест получения ФИО:")
+    for email in test_emails:
+        name = get_employee_name(email)
+        print(f"{email} -> {name}")
+    
+    print("\nТест списка участников:")
+    attendees = get_attendees_with_names(test_emails)
+    for attendee in attendees:
+        print(f"  - {attendee}")
+    
+    print("\nДля использования:")
+    print("1. Скопируйте этот файл в employee_database.py")
+    print("2. Заполните EMPLOYEE_DATABASE реальными данными")
+    print("3. Убедитесь, что файл добавлен в .gitignore")

@@ -29,6 +29,92 @@ except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
 
+def convert_html_to_readable_text(html_text: str) -> str:
+    """Конвертировать HTML текст в читаемый Markdown формат для Notion."""
+    import re
+    
+    if not html_text:
+        return ""
+    
+    # Убираем HTML теги и заменяем их на Markdown
+    text = html_text
+    
+    # Заменяем HTML теги на Markdown
+    replacements = [
+        # Заголовки
+        (r'<h1[^>]*>(.*?)</h1>', r'# \1'),
+        (r'<h2[^>]*>(.*?)</h2>', r'## \1'),
+        (r'<h3[^>]*>(.*?)</h3>', r'### \1'),
+        
+        # Жирный текст
+        (r'<b[^>]*>(.*?)</b>', r'**\1**'),
+        (r'<strong[^>]*>(.*?)</strong>', r'**\1**'),
+        
+        # Курсив
+        (r'<i[^>]*>(.*?)</i>', r'*\1*'),
+        (r'<em[^>]*>(.*?)</em>', r'*\1*'),
+        
+        # Подчеркнутый
+        (r'<u[^>]*>(.*?)</u>', r'__\1__'),
+        
+        # Списки
+        (r'<ul[^>]*>(.*?)</ul>', r'\1'),
+        (r'<ol[^>]*>(.*?)</ol>', r'\1'),
+        (r'<li[^>]*>(.*?)</li>', r'• \1'),
+        
+        # Ссылки
+        (r'<a[^>]*href="([^"]*)"[^>]*>(.*?)</a>', r'[\2](\1)'),
+        
+        # Переносы строк
+        (r'<br\s*/?>', r'\n'),
+        (r'<br>', r'\n'),
+        
+        # Параграфы
+        (r'<p[^>]*>(.*?)</p>', r'\1\n\n'),
+        
+        # Разделители
+        (r'<hr\s*/?>', r'---\n'),
+        (r'<hr>', r'---\n'),
+        
+        # Цитаты
+        (r'<blockquote[^>]*>(.*?)</blockquote>', r'> \1'),
+        
+        # Код
+        (r'<code[^>]*>(.*?)</code>', r'`\1`'),
+        (r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```'),
+    ]
+    
+    # Применяем замены
+    for pattern, replacement in replacements:
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE | re.DOTALL)
+    
+    # Убираем оставшиеся HTML теги
+    text = re.sub(r'<[^>]+>', '', text)
+    
+    # Обрабатываем специальные символы
+    text = text.replace('&nbsp;', ' ')
+    text = text.replace('&amp;', '&')
+    text = text.replace('&lt;', '<')
+    text = text.replace('&gt;', '>')
+    text = text.replace('&quot;', '"')
+    text = text.replace('&#39;', "'")
+    
+    # Обрабатываем экранированные символы
+    text = text.replace('\\n', '\n')
+    text = text.replace('\\t', '\t')
+    text = text.replace('\\r', '\n')
+    
+    # Очищаем лишние пробелы и переносы
+    text = re.sub(r'\n\s*\n\s*\n', '\n\n', text)  # Убираем лишние пустые строки
+    text = re.sub(r' +', ' ', text)  # Убираем лишние пробелы
+    text = text.strip()
+    
+    # Ограничиваем длину текста для Notion (максимум 1800 символов)
+    if len(text) > 1800:
+        text = text[:1800] + "...\n\n[Текст обрезан из-за ограничений Notion]"
+    
+    return text
+
 def create_enhanced_meeting_template(
     title: str,
     start_time: datetime,
@@ -170,6 +256,11 @@ def create_enhanced_meeting_template(
         })
         
         for link in all_links:
+            content = link
+            # Ограничиваем длину ссылки для Notion (максимум 1800 символов)
+            if len(content) > 1800:
+                content = content[:1800] + "...\n\n[Ссылка обрезана из-за ограничений Notion]"
+            
             template["children"].append({
                 "object": "block",
                 "type": "bulleted_list_item",
@@ -178,7 +269,7 @@ def create_enhanced_meeting_template(
                         {
                             "type": "text",
                             "text": {
-                                "content": link
+                                "content": content
                             }
                         }
                     ]
@@ -202,20 +293,56 @@ def create_enhanced_meeting_template(
             }
         })
         
-        template["children"].append({
-            "object": "block",
-            "type": "paragraph",
-            "paragraph": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": description
+        # Разбиваем описание на параграфы для лучшей читаемости
+        paragraphs = description.split('\n\n')
+        for paragraph in paragraphs:
+            if paragraph.strip():
+                # Проверяем, является ли параграф списком
+                if paragraph.strip().startswith('•'):
+                    # Это список
+                    items = paragraph.strip().split('\n')
+                    for item in items:
+                        if item.strip():
+                            content = item.strip()[1:].strip()  # Убираем маркер списка
+                            # Ограничиваем длину элемента списка для Notion (максимум 1800 символов)
+                            if len(content) > 1800:
+                                content = content[:1800] + "...\n\n[Текст обрезан из-за ограничений Notion]"
+                            
+                            template["children"].append({
+                                "object": "block",
+                                "type": "bulleted_list_item",
+                                "bulleted_list_item": {
+                                    "rich_text": [
+                                        {
+                                            "type": "text",
+                                            "text": {
+                                                "content": content
+                                            }
+                                        }
+                                    ]
+                                }
+                            })
+                else:
+                    # Обычный параграф
+                    content = paragraph.strip()
+                    # Ограничиваем длину параграфа для Notion (максимум 1800 символов)
+                    if len(content) > 1800:
+                        content = content[:1800] + "...\n\n[Текст обрезан из-за ограничений Notion]"
+                    
+                    template["children"].append({
+                        "object": "block",
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [
+                                {
+                                    "type": "text",
+                                    "text": {
+                                        "content": content
+                                    }
+                                }
+                            ]
                         }
-                    }
-                ]
-            }
-        })
+                    })
     
     # Папка Google Drive
     if folder_link:
@@ -270,12 +397,20 @@ def update_work_notion_page(event: CalendarEvent, page_id: str, folder_link: str
         # Обрабатываем участников для отображения ФИО и email
         attendees_info = []
         if event.attendees:
-            for attendee in event.attendees:
-                if '@' in attendee:
-                    name = attendee.split('@')[0]
-                    attendees_info.append(f"{name} ({attendee})")
-                else:
-                    attendees_info.append(attendee)
+            try:
+                from config.employee_database import get_attendees_with_names
+                attendees_info = get_attendees_with_names(event.attendees)
+            except ImportError:
+                # Если база данных недоступна, используем простой формат
+                for attendee in event.attendees:
+                    if '@' in attendee:
+                        # Извлекаем имя из email (убираем домен)
+                        name = attendee.split('@')[0]
+                        # Заменяем точки на пробелы для лучшей читаемости
+                        name = name.replace('.', ' ').replace('_', ' ').title()
+                        attendees_info.append(f"{name} ({attendee})")
+                    else:
+                        attendees_info.append(attendee)
         
         # Обрабатываем описание встречи
         meeting_description = ""
@@ -289,8 +424,8 @@ def update_work_notion_page(event: CalendarEvent, page_id: str, folder_link: str
                 if 'meet.google.com' in url or 'zoom.us' in url or 'telemost' in url.lower():
                     meeting_links.append(url)
             
-            clean_description = re.sub(url_pattern, '', event.description).strip()
-            meeting_description = clean_description
+            # Конвертируем HTML в читаемый текст
+            meeting_description = convert_html_to_readable_text(event.description)
         
         # Создаем обновленный шаблон
         updated_template = create_enhanced_meeting_template(
@@ -678,13 +813,18 @@ def create_work_notion_page(event: CalendarEvent, folder_link: str = "") -> str:
         # Обрабатываем участников для отображения ФИО и email
         attendees_info = []
         if event.attendees:
-            for attendee in event.attendees:
-                if '@' in attendee:
-                    # Пытаемся извлечь имя из email
-                    name = attendee.split('@')[0]
-                    attendees_info.append(f"{name} ({attendee})")
-                else:
-                    attendees_info.append(attendee)
+            try:
+                from config.employee_database import get_attendees_with_names
+                attendees_info = get_attendees_with_names(event.attendees)
+            except ImportError:
+                # Если база данных недоступна, используем простой формат
+                for attendee in event.attendees:
+                    if '@' in attendee:
+                        # Пытаемся извлечь имя из email
+                        name = attendee.split('@')[0]
+                        attendees_info.append(f"{name} ({attendee})")
+                    else:
+                        attendees_info.append(attendee)
         
         # Обрабатываем описание встречи
         meeting_description = ""

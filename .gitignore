@@ -75,3 +75,6 @@ env.*
 
 # Keep example configs
 !env.*.example
+
+# Employee database (contains personal information)
+config/employee_database.py

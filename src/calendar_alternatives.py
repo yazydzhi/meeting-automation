@@ -395,12 +395,59 @@ class WebCalendarProvider(CalendarProvider):
             description = event_data.get('DESCRIPTION', '')
             location = event_data.get('LOCATION', '')
             
+            # Извлекаем участников из iCal с более детальной информацией
+            attendees = []
+            attendee_mapping = {}  # Словарь для сопоставления частичных имен и полных email
+            
+            for key, value in event_data.items():
+                if key.startswith('ATTENDEE') or '@' in value:
+                    # Убираем параметры и оставляем только email
+                    if ':' in value:
+                        email = value.split(':', 1)[1]
+                        # Убираем mailto: если есть
+                        if email.startswith('mailto:'):
+                            email = email[7:]
+                        # Убираем дополнительные параметры
+                        if ';' in email:
+                            email = email.split(';')[0]
+                        
+                        # Если это частичное имя (например, hev@cian.ru), сохраняем для сопоставления
+                        if '@' in email and '.' not in email.split('@')[0]:
+                            # Это частичное имя, ищем полный email
+                            for k, v in event_data.items():
+                                if 'mailto:' in v and email.split('@')[0] in v:
+                                    full_email = v.split('mailto:')[1].split(';')[0]
+                                    attendee_mapping[email] = full_email
+                                    if full_email not in attendees:
+                                        attendees.append(full_email)
+                                    break
+                        else:
+                            # Это полный email
+                            if email not in attendees:
+                                attendees.append(email)
+            
+            # Также ищем участников в других полях
+            for key, value in event_data.items():
+                if '@' in value and 'mailto:' in value:
+                    email = value.split('mailto:')[1].split(';')[0]
+                    if email not in attendees:
+                        attendees.append(email)
+            
+            # Извлекаем ссылку на встречу
+            meeting_link = ""
+            for key, value in event_data.items():
+                if key.startswith('X-GOOGLE-CONFERENCE') or 'meet.google.com' in value or 'zoom.us' in value:
+                    meeting_link = value
+                    break
+            
             return CalendarEvent(
                 title=title,
                 start=start,
                 end=end,
                 description=description,
                 location=location,
+                attendees=attendees,
+                meeting_link=meeting_link,
                 calendar_source='web_ical'
             )
         except Exception as e:
