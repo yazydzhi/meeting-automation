@@ -136,8 +136,8 @@ class AudioProcessor:
                 'language': language
             }
             
-            # Сохраняем результат
-            self._save_result(result, output_format)
+            # Не сохраняем результат автоматически - это делает вызывающий код
+            # self._save_result(result, output_format)
             
             self.logger.info("⚠️ Заглушка создана успешно")
             return result
