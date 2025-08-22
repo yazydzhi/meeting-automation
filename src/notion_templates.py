@@ -301,6 +301,13 @@ def create_page_with_template(
             headers=headers,
             json=create_data
         )
+        
+        if response.status_code != 200:
+            print(f"✖ Ошибка создания страницы: {response.status_code}")
+            print(f"   Тело ответа: {response.text}")
+            print(f"   Заголовки: {dict(response.headers)}")
+            return ""
+            
         response.raise_for_status()
         page_data = response.json()
         page_id = page_data["id"]

@@ -26,7 +26,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-def run_personal_automation(command: str):
+def run_personal_automation(command: str, additional_args: list = None):
     """Запустить автоматизацию для личного аккаунта."""
     try:
         logger.info("👤 Запуск автоматизации для личного аккаунта...")
@@ -37,11 +37,14 @@ def run_personal_automation(command: str):
             logger.error(f"❌ Скрипт не найден: {script_path}")
             return False
         
+        # Формируем команду
+        cmd = [sys.executable, script_path, command]
+        if additional_args:
+            cmd.extend(additional_args)
+        
         # Запускаем скрипт
         import subprocess
-        result = subprocess.run([
-            sys.executable, script_path, command
-        ], capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
             logger.info("✅ Личный аккаунт: обработка завершена успешно")
@@ -59,7 +62,7 @@ def run_personal_automation(command: str):
         logger.error(f"❌ Ошибка запуска личного аккаунта: {e}")
         return False
 
-def run_work_automation(command: str):
+def run_work_automation(command: str, additional_args: list = None):
     """Запустить автоматизацию для рабочего аккаунта."""
     try:
         logger.info("🏢 Запуск автоматизации для рабочего аккаунта...")
@@ -70,11 +73,14 @@ def run_work_automation(command: str):
             logger.error(f"❌ Скрипт не найден: {script_path}")
             return False
         
+        # Формируем команду
+        cmd = [sys.executable, script_path, command]
+        if additional_args:
+            cmd.extend(additional_args)
+        
         # Запускаем скрипт
         import subprocess
-        result = subprocess.run([
-            sys.executable, script_path, command
-        ], capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
         
         if result.returncode == 0:
             logger.info("✅ Рабочий аккаунт: обработка завершена успешно")
@@ -151,6 +157,16 @@ def main():
                        help='Только рабочий аккаунт')
     parser.add_argument('--skip-config-check', action='store_true',
                        help='Пропустить проверку конфигураций')
+    parser.add_argument('--days', type=int, default=2,
+                       help='Количество дней для обработки календаря')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Подробный режим логирования')
+    parser.add_argument('--config-only', action='store_true',
+                       help='Только проверка конфигурации')
+    parser.add_argument('--calendar-only', action='store_true',
+                       help='Только проверка календаря')
+    parser.add_argument('--drive-only', action='store_true',
+                       help='Только проверка Google Drive')
     
     args = parser.parse_args()
     
@@ -172,15 +188,28 @@ def main():
     else:
         logger.info("🔄 Запуск для обоих аккаунтов")
     
+    # Формируем дополнительные аргументы
+    additional_args = []
+    if args.days != 2:
+        additional_args.extend(['--days', str(args.days)])
+    if args.verbose:
+        additional_args.append('--verbose')
+    if args.config_only:
+        additional_args.append('--config-only')
+    if args.calendar_only:
+        additional_args.append('--calendar-only')
+    if args.drive_only:
+        additional_args.append('--drive-only')
+    
     # Запускаем автоматизацию
     personal_success = False
     work_success = False
     
     if run_personal:
-        personal_success = run_personal_automation(args.command)
+        personal_success = run_personal_automation(args.command, additional_args)
     
     if run_work:
-        work_success = run_work_automation(args.command)
+        work_success = run_work_automation(args.command, additional_args)
     
     # Создаем сводный отчет
     if run_personal and run_work:

@@ -271,23 +271,63 @@ class WebCalendarProvider(CalendarProvider):
         
         current_event = {}
         in_event = False
+        event_count = 0
+        parsed_count = 0
         
-        for line in lines:
-            line = line.strip()
+        i = 0
+        while i < len(lines):
+            line = lines[i].strip()
             
             if line == 'BEGIN:VEVENT':
                 in_event = True
                 current_event = {}
+                event_count += 1
             elif line == 'END:VEVENT':
-                if in_event and self._is_event_in_range(current_event, start_date, end_date):
-                    event = self._create_event_from_ical(current_event)
-                    if event:
-                        events.append(event)
+                if in_event:
+                    try:
+                        # Обрабатываем повторяющиеся события
+                        if 'RRULE' in current_event:
+                            logger.info(f"📔 Найдено RRULE событие: {current_event.get('SUMMARY', 'Без названия')}")
+                            logger.debug(f"📔 RRULE данные события: {current_event}")
+                            rrule_events = self._expand_rrule_event(current_event, start_date, end_date)
+                            logger.info(f"📔 Сгенерировано {len(rrule_events)} повторений для RRULE события")
+                            for event in rrule_events:
+                                if event:
+                                    events.append(event)
+                                    parsed_count += 1
+                        elif self._is_event_in_range(current_event, start_date, end_date):
+                            event = self._create_event_from_ical(current_event)
+                            if event:
+                                events.append(event)
+                                parsed_count += 1
+                        else:
+                            # Логируем события вне диапазона для диагностики
+                            if 'SUMMARY' in current_event and 'DTSTART' in current_event:
+                                try:
+                                    event_start = self._parse_ical_datetime(current_event['DTSTART'])
+                                    logger.debug(f"Событие вне диапазона: {current_event['SUMMARY']} | {event_start}")
+                                except:
+                                    logger.debug(f"Событие вне диапазона (ошибка парсинга): {current_event.get('SUMMARY', 'Без названия')}")
+                    except Exception as e:
+                        logger.error(f"Ошибка обработки события: {e}")
+                        logger.error(f"Данные события: {current_event}")
                 in_event = False
             elif in_event and ':' in line:
                 key, value = line.split(':', 1)
+                
+                # Обрабатываем многострочные значения (RFC 5545)
+                # Проверяем следующие строки на продолжение (начинаются с пробела или табуляции)
+                j = i + 1
+                while j < len(lines) and len(lines[j]) > 0 and lines[j][0] in ' \t':
+                    value += lines[j][1:]  # Убираем первый символ (пробел/таб) и добавляем к значению
+                    j += 1
+                i = j - 1  # Устанавливаем индекс на последнюю обработанную строку
+                
                 current_event[key] = value
+            
+            i += 1
         
+        logger.info(f"📊 iCal парсинг: найдено {event_count} событий, в диапазоне {parsed_count}")
         return events
     
     def _parse_rss(self, content: str, start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
@@ -310,19 +350,41 @@ class WebCalendarProvider(CalendarProvider):
     
     def _parse_ical_datetime(self, dt_string: str) -> datetime:
         """Парсинг даты из iCal формата."""
-        # Убираем возможные параметры
-        if ';' in dt_string:
-            dt_string = dt_string.split(';')[1]
-        
-        # Парсим дату
-        if len(dt_string) == 8:  # YYYYMMDD
-            return datetime.strptime(dt_string, '%Y%m%d')
-        elif len(dt_string) == 15:  # YYYYMMDDTHHMMSS
-            return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
-        elif len(dt_string) == 16:  # YYYYMMDDTHHMMSSZ
-            return datetime.strptime(dt_string, '%Y%m%dT%H%M%SZ')
-        else:
-            raise ValueError(f"Неподдерживаемый формат даты: {dt_string}")
+        try:
+            # Убираем возможные параметры (TZID, VALUE и т.д.)
+            if ';' in dt_string:
+                # Разбираем параметры
+                parts = dt_string.split(';')
+                dt_string = parts[-1]  # Берем последнюю часть - саму дату
+            
+            # Убираем возможные кавычки
+            dt_string = dt_string.strip('"')
+            
+            # Парсим различные форматы дат
+            if len(dt_string) == 8:  # YYYYMMDD
+                return datetime.strptime(dt_string, '%Y%m%d')
+            elif len(dt_string) == 15:  # YYYYMMDDTHHMMSS
+                return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+            elif len(dt_string) == 16:  # YYYYMMDDTHHMMSSZ
+                return datetime.strptime(dt_string, '%Y%m%dT%H%M%SZ')
+            elif len(dt_string) == 19:  # YYYYMMDDTHHMMSS (без Z)
+                return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+            elif len(dt_string) == 20:  # YYYYMMDDTHHMMSS (с TZID)
+                # Убираем TZID если есть
+                if 'T' in dt_string:
+                    dt_part = dt_string.split('T')[0] + 'T' + dt_string.split('T')[1]
+                    return datetime.strptime(dt_part, '%Y%m%dT%H%M%S')
+                else:
+                    return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+            else:
+                # Попробуем парсить как ISO формат
+                try:
+                    return datetime.fromisoformat(dt_string.replace('Z', '+00:00'))
+                except:
+                    raise ValueError(f"Неподдерживаемый формат даты: {dt_string}")
+        except Exception as e:
+            logger.error(f"Ошибка парсинга даты '{dt_string}': {e}")
+            raise
     
     def _create_event_from_ical(self, event_data: Dict[str, str]) -> Optional[CalendarEvent]:
         """Создать событие из данных iCal."""
@@ -344,6 +406,136 @@ class WebCalendarProvider(CalendarProvider):
         except Exception as e:
             logger.error(f"Ошибка создания события из iCal: {e}")
             return None
+    
+    def _expand_rrule_event(self, event_data: Dict[str, str], start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
+        """Расширить повторяющееся событие (RRULE) в конкретные события."""
+        events = []
+        event_name = event_data.get('SUMMARY', 'Без названия')
+        
+        try:
+            # Ищем DTSTART с возможными параметрами
+            dtstart_key = None
+            for key in event_data.keys():
+                if key.startswith('DTSTART'):
+                    dtstart_key = key
+                    break
+            
+            if not dtstart_key or 'RRULE' not in event_data:
+                logger.debug(f"RRULE событие '{event_name}' не содержит DTSTART или RRULE")
+                logger.debug(f"RRULE ключи: {list(event_data.keys())}")
+                return events
+            
+            # Парсим начальную дату события
+            event_start = self._parse_ical_datetime(event_data[dtstart_key])
+            logger.debug(f"RRULE '{event_name}': исходная дата {event_start}")
+            logger.debug(f"RRULE '{event_name}': искомый диапазон {start_date} - {end_date}")
+            
+            # Ищем DTEND с возможными параметрами
+            dtend_key = None
+            for key in event_data.keys():
+                if key.startswith('DTEND'):
+                    dtend_key = key
+                    break
+            
+            # Вычисляем продолжительность события
+            if dtend_key:
+                event_end = self._parse_ical_datetime(event_data[dtend_key])
+                duration = event_end - event_start
+            else:
+                duration = timedelta(hours=1)  # По умолчанию 1 час
+            
+            # Простой парсинг RRULE для основных случаев
+            rrule = event_data['RRULE']
+            logger.debug(f"RRULE '{event_name}': правило {rrule}")
+            
+            # Извлекаем параметры RRULE
+            freq = None
+            interval = 1
+            until = None
+            byday = None
+            
+            for param in rrule.split(';'):
+                if param.startswith('FREQ='):
+                    freq = param.split('=')[1]
+                elif param.startswith('INTERVAL='):
+                    interval = int(param.split('=')[1])
+                elif param.startswith('UNTIL='):
+                    until_str = param.split('=')[1]
+                    try:
+                        until = self._parse_ical_datetime(until_str)
+                    except:
+                        until = None
+                elif param.startswith('BYDAY='):
+                    byday = param.split('=')[1]
+            
+            if not freq:
+                logger.debug(f"RRULE '{event_name}': частота не найдена")
+                return events
+            
+            logger.debug(f"RRULE '{event_name}': FREQ={freq}, INTERVAL={interval}, UNTIL={until}, BYDAY={byday}")
+            
+            # Начинаем поиск с более раннего времени для захвата повторений
+            search_start = max(event_start, start_date - timedelta(days=365))  # Ищем год назад
+            current_start = search_start
+            max_iterations = 500  # Увеличиваем лимит итераций
+            iteration = 0
+            
+            while current_start <= end_date and iteration < max_iterations:
+                iteration += 1
+                
+                # Проверяем, что событие попадает в диапазон
+                if current_start >= start_date:
+                    logger.debug(f"RRULE '{event_name}': добавляем событие на {current_start}")
+                    
+                    # Создаем копию данных события с новой датой
+                    new_event_data = event_data.copy()
+                    
+                    # Обновляем даты
+                    new_start_str = current_start.strftime('%Y%m%dT%H%M%S')
+                    new_end_str = (current_start + duration).strftime('%Y%m%dT%H%M%S')
+                    
+                    new_event_data['DTSTART'] = new_start_str
+                    new_event_data['DTEND'] = new_end_str
+                    
+                    # Удаляем RRULE из копии
+                    new_event_data.pop('RRULE', None)
+                    
+                    event = self._create_event_from_ical(new_event_data)
+                    if event:
+                        events.append(event)
+                
+                # Вычисляем следующую дату
+                if freq == 'DAILY':
+                    current_start += timedelta(days=interval)
+                elif freq == 'WEEKLY':
+                    current_start += timedelta(weeks=interval)
+                elif freq == 'MONTHLY':
+                    # Простая логика для месячных повторений
+                    try:
+                        if current_start.month == 12:
+                            current_start = current_start.replace(year=current_start.year + 1, month=1)
+                        else:
+                            current_start = current_start.replace(month=current_start.month + 1)
+                    except ValueError:
+                        # Если день не существует в новом месяце (например, 31 февраля)
+                        current_start += timedelta(days=30)
+                else:
+                    logger.debug(f"RRULE '{event_name}': неподдерживаемая частота {freq}")
+                    break  # Неподдерживаемая частота
+                
+                # Проверяем UNTIL
+                if until and current_start > until:
+                    logger.debug(f"RRULE '{event_name}': достигнута дата окончания {until}")
+                    break
+            
+            logger.debug(f"RRULE '{event_name}': сгенерировано {len(events)} повторений за {iteration} итераций")
+            
+        except Exception as e:
+            logger.error(f"Ошибка расширения RRULE для '{event_name}': {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+        
+        return events
 
 class LocalCalendarProvider(CalendarProvider):
     """Провайдер календаря из локальных файлов."""

@@ -27,6 +27,46 @@ except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
 
+def load_personal_exclusions() -> List[str]:
+    """Загрузить список личных ключевых слов для исключения из файла."""
+    exclusions_file = Path("config/personal_exclusions.txt")
+    exclusions = []
+    
+    if not exclusions_file.exists():
+        logger.warning(f"⚠️ Файл исключений не найден: {exclusions_file}")
+        # Возвращаем базовый список по умолчанию
+        return ['День рождения', 'Дела', 'Личное', 'Personal', 'Отпуск']
+    
+    try:
+        with open(exclusions_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Игнорируем пустые строки и комментарии
+                if line and not line.startswith('#'):
+                    exclusions.append(line)
+        
+        logger.info(f"📋 Загружено {len(exclusions)} исключений из {exclusions_file}")
+        return exclusions
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки исключений: {e}")
+        # Возвращаем базовый список по умолчанию
+        return ['День рождения', 'Дела', 'Личное', 'Personal', 'Отпуск']
+
+def notify(bot_token: str, chat_id: str, text: str) -> bool:
+    """Отправить уведомление в Telegram."""
+    try:
+        import requests
+        r = requests.get(
+            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            params={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}, 
+            timeout=15
+        )
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки уведомления в Telegram: {e}")
+        return False
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -117,25 +157,40 @@ def get_work_drive_provider():
         logger.error(f"❌ Ошибка получения провайдера Google Drive: {e}")
         return None
 
-def filter_work_events(events: List[CalendarEvent]) -> List[CalendarEvent]:
+def filter_work_events(events: List[CalendarEvent]) -> tuple[List[CalendarEvent], List[Dict[str, Any]]]:
     """Фильтровать события для рабочего аккаунта."""
     filtered_events = []
-    excluded_keywords = ['День рождения', 'Дела', 'Личное', 'Personal']
+    excluded_events = []
+    
+    # Загружаем список исключений из файла
+    personal_keywords = load_personal_exclusions()
     
     for event in events:
-        # Исключаем личные события
-        if any(keyword.lower() in event.title.lower() for keyword in excluded_keywords):
-            logger.info(f"⏭️ Исключено событие: {event.title}")
+        # Исключаем только личные события по ключевым словам
+        is_personal = False
+        matched_keywords = []
+        
+        for keyword in personal_keywords:
+            if keyword.lower() in event.title.lower():
+                is_personal = True
+                matched_keywords.append(keyword)
+        
+        if is_personal:
+            logger.info(f"⏭️ Исключено личное событие: {event.title}")
+            excluded_events.append({
+                'title': event.title,
+                'start': event.start,
+                'end': event.end,
+                'reason': 'Личное событие',
+                'keywords': matched_keywords
+            })
             continue
         
-        # Проверяем, что это рабочее событие
-        if any(keyword in event.title.lower() for keyword in ['встреча', 'meeting', 'совещание', 'call']):
-            filtered_events.append(event)
-            logger.info(f"✅ Добавлено рабочее событие: {event.title}")
-        else:
-            logger.info(f"⏭️ Пропущено нерабочее событие: {event.title}")
+        # Все остальные события считаем рабочими
+        filtered_events.append(event)
+        logger.info(f"✅ Добавлено рабочее событие: {event.title}")
     
-    return filtered_events
+    return filtered_events, excluded_events
 
 def format_work_folder_name(event: CalendarEvent) -> str:
     """Форматировать название папки для рабочего аккаунта."""
@@ -150,6 +205,83 @@ def format_work_folder_name(event: CalendarEvent) -> str:
     folder_name = folder_name.replace('*', '').replace('?', '').replace('"', '').replace('<', '').replace('>', '').replace('|', '')
     
     return folder_name
+
+def check_notion_page_exists(notion_token: str, database_id: str, event_id: str) -> str:
+    """Проверить, существует ли страница с данным Event ID в Notion."""
+    try:
+        import requests
+        
+        headers = {
+            "Authorization": f"Bearer {notion_token}",
+            "Notion-Version": "2022-06-28",
+            "Content-Type": "application/json"
+        }
+        
+        # Поиск страницы по Event ID
+        filter_data = {
+            "filter": {
+                "property": "Event ID",
+                "rich_text": {
+                    "equals": event_id
+                }
+            }
+        }
+        
+        response = requests.post(
+            f"https://api.notion.com/v1/databases/{database_id}/query",
+            headers=headers,
+            json=filter_data
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            results = data.get('results', [])
+            if results:
+                page_id = results[0]['id']
+                logger.info(f"✅ Найдена существующая страница: {page_id}")
+                return page_id
+            else:
+                logger.info(f"🔍 Страница с Event ID '{event_id}' не найдена")
+                return ""
+        else:
+            logger.error(f"❌ Ошибка поиска страницы: {response.status_code}")
+            return ""
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка проверки существования страницы: {e}")
+        return ""
+
+def get_notion_database_schema(notion_token: str, database_id: str) -> Dict[str, Any]:
+    """Получить схему базы данных Notion."""
+    try:
+        import requests
+        
+        headers = {
+            "Authorization": f"Bearer {notion_token}",
+            "Notion-Version": "2022-06-28",
+        }
+        
+        response = requests.get(
+            f"https://api.notion.com/v1/databases/{database_id}",
+            headers=headers
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            properties = data.get('properties', {})
+            logger.info(f"🔍 Схема базы данных Notion:")
+            for prop_name, prop_data in properties.items():
+                prop_type = prop_data.get('type', 'unknown')
+                logger.info(f"   📝 {prop_name}: {prop_type}")
+            return properties
+        else:
+            logger.error(f"❌ Ошибка получения схемы базы данных: {response.status_code}")
+            logger.error(f"   Тело ответа: {response.text}")
+            return {}
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения схемы базы данных: {e}")
+        return {}
 
 def create_work_notion_page(event: CalendarEvent, folder_link: str = "") -> str:
     """Создать страницу в Notion для рабочего события."""
@@ -182,26 +314,116 @@ def create_work_notion_page(event: CalendarEvent, folder_link: str = "") -> str:
         notion_token = os.getenv('NOTION_TOKEN')
         database_id = os.getenv('NOTION_DATABASE_ID')
         
-        if not notion_token or not database_id:
-            logger.error("❌ Не настроены Notion токен или ID базы данных")
+        if not notion_token:
+            logger.error("❌ Не настроен NOTION_TOKEN")
             return ""
+        
+        if not database_id:
+            logger.error("❌ Не настроен NOTION_DATABASE_ID")
+            return ""
+        
+        logger.info(f"🔧 Создание страницы в Notion для: {event.title}")
+        logger.info(f"   📅 Дата: {event.start.strftime('%Y-%m-%d %H:%M')}")
+        logger.info(f"   🗄️ База данных: {database_id[:8]}...")
+        logger.info(f"   🔑 Токен: {notion_token[:8]}...")
+        
+        # Создаем Event ID для проверки
+        import hashlib
+        event_hash = hashlib.md5(f"{event.start.isoformat()}{event.title}".encode()).hexdigest()[:8]
+        event_id = f"work_{event_hash}"
+        
+        # Проверяем, существует ли уже страница с таким Event ID
+        existing_page_id = check_notion_page_exists(notion_token, database_id, event_id)
+        if existing_page_id:
+            logger.info(f"⏭️ Страница уже существует, пропускаем создание")
+            return existing_page_id
+        
+        # Получаем схему базы данных
+        schema = get_notion_database_schema(notion_token, database_id)
+        
+        # Создаем свойства страницы для Notion (только обязательные)
+        page_properties = {
+            "Name": {  # Обязательное свойство
+                "title": [
+                    {
+                        "text": {
+                            "content": event.title
+                        }
+                    }
+                ]
+            },
+            "Date": {  # Обязательное свойство
+                "date": {
+                    "start": event.start.isoformat(),
+                    "end": event.end.isoformat()
+                }
+            }
+        }
+        
+        # Добавляем пометку о рабочем календаре
+        if "Calendar" in schema:
+            page_properties["Calendar"] = {
+                "select": {
+                    "name": "Work"
+                }
+            }
+        
+        # Добавляем участников
+        if event.attendees and "Attendees" in schema:
+            page_properties["Attendees"] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": ", ".join(event.attendees)
+                        }
+                    }
+                ]
+            }
+        
+        # Добавляем ссылку на встречу
+        if event.meeting_link and "Meeting Link" in schema:
+            page_properties["Meeting Link"] = {
+                "url": event.meeting_link
+            }
+        
+        # Добавляем папку Google Drive
+        if folder_link and "Drive Folder" in schema:
+            page_properties["Drive Folder"] = {
+                "url": folder_link
+            }
+        
+        # Добавляем ID события
+        if "Event ID" in schema:
+            page_properties["Event ID"] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": event_id
+                        }
+                    }
+                ]
+            }
+        
+        logger.info(f"🔧 Свойства страницы: {list(page_properties.keys())}")
         
         page_id = create_page_with_template(
             notion_token, 
             database_id, 
-            template, 
-            template_data
+            page_properties,  # properties
+            template          # template
         )
         
         if page_id:
             logger.info(f"✅ Создана страница в Notion: {page_id}")
             return page_id
         else:
-            logger.error("❌ Не удалось создать страницу в Notion")
+            logger.error("❌ Не удалось создать страницу в Notion (функция вернула None)")
             return ""
             
     except Exception as e:
         logger.error(f"❌ Ошибка создания страницы в Notion: {e}")
+        logger.error(f"   📍 Тип ошибки: {type(e).__name__}")
+        logger.error(f"   📝 Детали: {str(e)}")
         return ""
 
 def process_work_event(event: CalendarEvent, drive_provider) -> Dict[str, Any]:
@@ -232,7 +454,30 @@ def process_work_event(event: CalendarEvent, drive_provider) -> Dict[str, Any]:
         
         # Создаем страницу в Notion
         folder_link = f"file://{folder_name}" if folder_created else ""
-        notion_page_id = create_work_notion_page(event, folder_link)
+        
+        # Создаем Event ID для проверки
+        import hashlib
+        event_hash = hashlib.md5(f"{event.start.isoformat()}{event.title}".encode()).hexdigest()[:8]
+        event_id = f"work_{event_hash}"
+        
+        # Проверяем, существует ли страница
+        notion_token = os.getenv('NOTION_TOKEN')
+        database_id = os.getenv('NOTION_DATABASE_ID')
+        
+        notion_page_created = False
+        if notion_token and database_id:
+            existing_page_id = check_notion_page_exists(notion_token, database_id, event_id)
+            if existing_page_id:
+                notion_page_id = existing_page_id
+                logger.info(f"📄 Используем существующую страницу в Notion: {notion_page_id}")
+            else:
+                notion_page_id = create_work_notion_page(event, folder_link)
+                notion_page_created = bool(notion_page_id)
+                if notion_page_created:
+                    logger.info(f"✨ Создана новая страница в Notion: {notion_page_id}")
+        else:
+            notion_page_id = ""
+            logger.warning("⚠️ Notion не настроен")
         
         # Формируем результат
         result = {
@@ -243,7 +488,9 @@ def process_work_event(event: CalendarEvent, drive_provider) -> Dict[str, Any]:
             'has_meeting_link': bool(event.meeting_link),
             'drive_folder_created': folder_created,
             'notion_page_id': notion_page_id,
-            'drive_folder_link': folder_link
+            'notion_page_created': notion_page_created,  # Новое поле
+            'drive_folder_link': folder_link,
+            'event_id': event_id  # Новое поле
         }
         
         logger.info(f"✅ Событие обработано: {event.title}")
@@ -263,10 +510,12 @@ def process_work_event(event: CalendarEvent, drive_provider) -> Dict[str, Any]:
             'error': str(e)
         }
 
-def process_work_calendar_events() -> Dict[str, Any]:
+def process_work_calendar_events(days: int = 2, force: bool = False, dry_run: bool = False) -> Dict[str, Any]:
     """Обработать события рабочего календаря."""
     try:
         logger.info("📅 Начинаю обработку рабочего календаря...")
+        if dry_run:
+            logger.info("🧪 РЕЖИМ ПРОБНОГО ЗАПУСКА - изменения не будут сохранены")
         
         # Получаем провайдер календаря
         calendar_provider = get_work_calendar_provider()
@@ -277,52 +526,93 @@ def process_work_calendar_events() -> Dict[str, Any]:
         # Получаем события на сегодня и завтра
         today = datetime.now().date()
         start_date = datetime.combine(today, datetime.min.time())
-        end_date = start_date + timedelta(days=2)
+        end_date = start_date + timedelta(days=days)
         
         events = calendar_provider.get_events(start_date, end_date)
         logger.info(f"📅 Найдено событий: {len(events)}")
         
+        # Показываем все события для диагностики
+        logger.info("🔍 Все события из календаря:")
+        for i, event in enumerate(events, 1):
+            start_time = event.start.strftime('%Y-%m-%d %H:%M')
+            end_time = event.end.strftime('%H:%M')
+            logger.info(f"   {i}. {start_time}-{end_time} | {event.title}")
+        
         # Фильтруем события
-        filtered_events = filter_work_events(events)
+        filtered_events, excluded_events = filter_work_events(events)
         logger.info(f"✅ Отфильтровано рабочих событий: {len(filtered_events)}")
+        logger.info(f"⏭️ Исключено событий: {len(excluded_events)}")
         
         # Получаем провайдер Google Drive
         drive_provider = get_work_drive_provider()
         
         # Обрабатываем события
         processed_events = 0
+        new_events_count = 0  # Счетчик новых событий
         processed_details = []
         
         for event in filtered_events:
             try:
-                result = process_work_event(event, drive_provider)
-                processed_details.append(result)
-                processed_events += 1
-                
-                # Выводим информацию о событии
-                logger.info(f"✅ Обработано: {event.title} | {event.start.strftime('%H:%M')} | Участники: {len(event.attendees)}")
+                if dry_run:
+                    # В режиме dry-run только показываем, что будет обработано
+                    logger.info(f"🧪 [DRY-RUN] Будет обработано: {event.title} | {event.start.strftime('%H:%M')} | Участники: {len(event.attendees)}")
+                    
+                    # Создаем заглушку результата
+                    result = {
+                        'title': event.title,
+                        'start': event.start,
+                        'end': event.end,
+                        'attendees_count': len(event.attendees),
+                        'has_meeting_link': bool(event.meeting_link),
+                        'drive_folder_created': False,
+                        'notion_page_id': '',
+                        'notion_page_created': True,  # В dry-run считаем как новое
+                        'drive_folder_link': '',
+                        'event_id': f"dry_run_{event.title[:8]}"
+                    }
+                    processed_details.append(result)
+                    processed_events += 1
+                    new_events_count += 1  # В dry-run все события считаем новыми
+                else:
+                    # Обычная обработка
+                    result = process_work_event(event, drive_provider)
+                    processed_details.append(result)
+                    processed_events += 1
+                    
+                    # Проверяем, было ли создано что-то новое
+                    if result.get('notion_page_created', False) or result.get('drive_folder_created', False):
+                        new_events_count += 1
+                    
+                    # Выводим информацию о событии
+                    status = "✨ Создано" if result.get('notion_page_created', False) else "📄 Существует"
+                    logger.info(f"{status}: {event.title} | {event.start.strftime('%H:%M')} | Участники: {len(event.attendees)}")
                 
             except Exception as e:
                 logger.error(f"❌ Ошибка обработки события {event.title}: {e}")
         
         # Статистика
-        excluded_count = len(events) - len(filtered_events)
+        excluded_count = len(excluded_events)
         
         result = {
             'processed': processed_events,
             'excluded': excluded_count,
             'errors': len(events) - processed_events - excluded_count,
-            'details': processed_details
+            'new_events': new_events_count,  # Добавляем счетчик новых событий
+            'details': processed_details,
+            'excluded_details': excluded_events  # Добавляем детали исключенных событий
         }
         
-        logger.info(f"📊 Статистика обработки: {result}")
+        if dry_run:
+            logger.info(f"🧪 [DRY-RUN] Статистика обработки: {result}")
+        else:
+            logger.info(f"📊 Статистика обработки: {result}")
         return result
         
     except Exception as e:
         logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
         return {'processed': 0, 'excluded': 0, 'errors': 1, 'details': []}
 
-def process_work_media_files() -> Dict[str, Any]:
+def process_work_media_files(max_folders: int = 5, output_format: str = 'mp3', quality: str = 'medium', cleanup: bool = False) -> Dict[str, Any]:
     """Обработать медиа файлы для рабочего аккаунта."""
     try:
         logger.info("🎬 Начинаю обработку медиа файлов для рабочего аккаунта...")
@@ -345,7 +635,7 @@ def process_work_media_files() -> Dict[str, Any]:
         total_errors = 0
         media_details = []
         
-        for folder in work_folders[:5]:  # Обрабатываем последние 5 папок
+        for folder in work_folders[:max_folders]:  # Обрабатываем последние max_folders папок
             try:
                 folder_name = folder.name
                 logger.info(f"🔄 Обрабатываю папку: {folder_name}")
@@ -399,6 +689,7 @@ def create_work_telegram_report(calendar_stats: Dict[str, Any], media_stats: Dic
         # Статистика календаря
         report += "📅 *Календарь:*\n"
         report += f"   ✅ Обработано: {calendar_stats['processed']}\n"
+        report += f"   ✨ Новых: {calendar_stats.get('new_events', 0)}\n"
         report += f"   ⏭️ Исключено: {calendar_stats['excluded']}\n"
         report += f"   ❌ Ошибки: {calendar_stats['errors']}\n\n"
         
@@ -410,13 +701,36 @@ def create_work_telegram_report(calendar_stats: Dict[str, Any], media_stats: Dic
                 title = detail['title']
                 attendees = detail['attendees_count']
                 
-                report += f"   🕐 {start_time} | {title}\n"
+                # Показываем статус события
+                status_icon = "✨" if detail.get('notion_page_created', False) else "📄"
+                report += f"   {status_icon} {start_time} | {title}\n"
+                
                 if attendees > 0:
                     report += f"      👥 Участники: {attendees}\n"
                 if detail.get('notion_page_id'):
                     report += f"      📝 Notion: {detail['notion_page_id'][:8]}...\n"
                 if detail.get('drive_folder_created'):
                     report += f"      📁 Папка создана\n"
+                if detail.get('notion_page_created'):
+                    report += f"      ✨ Новая страница\n"
+                if detail.get('event_id'):
+                    report += f"      🆔 ID: {detail['event_id']}\n"
+                if detail.get('error'):
+                    report += f"      ❌ Ошибка: {detail['error']}\n"
+                report += "\n"
+        
+        # Детали исключенных событий
+        if calendar_stats.get('excluded_details'):
+            report += "⏭️ *Исключенные события:*\n"
+            for detail in calendar_stats['excluded_details']:
+                start_time = detail['start'].strftime('%H:%M')
+                title = detail['title']
+                reason = detail['reason']
+                
+                report += f"   🕐 {start_time} | {title}\n"
+                report += f"      📝 Причина: {reason}\n"
+                if detail.get('keywords'):
+                    report += f"      🔑 Ключевые слова: {', '.join(detail['keywords'])}\n"
                 report += "\n"
         
         # Статистика медиа (если есть)
@@ -443,8 +757,6 @@ def create_work_telegram_report(calendar_stats: Dict[str, Any], media_stats: Dic
 def send_work_telegram_notification(report: str):
     """Отправить уведомление в Telegram для рабочего аккаунта."""
     try:
-        from meeting_automation_personal_only import notify
-        
         bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
         chat_id = os.getenv('TELEGRAM_CHAT_ID')
         
@@ -469,14 +781,49 @@ def send_work_telegram_notification(report: str):
 def main():
     """Основная функция."""
     parser = argparse.ArgumentParser(description='Автоматизация встреч для рабочего аккаунта')
-    parser.add_argument('command', choices=['prepare', 'media', 'test'], 
+    parser.add_argument('command', choices=['prepare', 'media', 'test', 'watch'], 
                        help='Команда для выполнения')
+    
+    # Общие параметры
     parser.add_argument('--folders', type=int, default=5,
                        help='Максимум папок для обработки')
     parser.add_argument('--cleanup', action='store_true',
                        help='Очистить старые файлы')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Подробный вывод')
+    parser.add_argument('--days', type=int, default=2,
+                       help='Количество дней для обработки (по умолчанию: 2)')
+    
+    # Параметры для команды test
+    parser.add_argument('--config-only', action='store_true',
+                       help='Только проверка конфигурации')
+    parser.add_argument('--calendar-only', action='store_true',
+                       help='Только тест календаря')
+    parser.add_argument('--drive-only', action='store_true',
+                       help='Только тест Google Drive')
+    
+    # Параметры для команды prepare
+    parser.add_argument('--force', action='store_true',
+                       help='Принудительная обработка всех событий')
+    parser.add_argument('--dry-run', action='store_true',
+                       help='Пробный запуск без изменений')
+    
+    # Параметры для команды media
+    parser.add_argument('--format', choices=['mp3', 'mp4', 'wav'], default='mp3',
+                       help='Формат выходного аудио/видео')
+    parser.add_argument('--quality', choices=['low', 'medium', 'high', 'ultra'], default='medium',
+                       help='Качество обработки медиа')
+    
+    # Параметры для команды watch
+    parser.add_argument('--interval', type=int, default=300,
+                       help='Интервал проверки в секундах (по умолчанию: 300)')
     
     args = parser.parse_args()
+    
+    # Настройка логирования в зависимости от verbose
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.info("🔍 Включен подробный режим логирования")
     
     # Загружаем переменные окружения
     if not load_work_environment():
@@ -487,24 +834,29 @@ def main():
     
     if args.command == 'prepare':
         # Обрабатываем календарь
-        calendar_stats = process_work_calendar_events()
+        calendar_stats = process_work_calendar_events(days=args.days, force=args.force, dry_run=args.dry_run)
         
         # Создаем отчет
         report = create_work_telegram_report(calendar_stats)
         
-        # Отправляем уведомление только если есть изменения
-        if calendar_stats['processed'] > 0:
+        # Отправляем уведомление только если есть НОВЫЕ события
+        if calendar_stats.get('new_events', 0) > 0:
             send_work_telegram_notification(report)
-            logger.info("📱 Уведомление отправлено (есть изменения)")
+            logger.info(f"📱 Уведомление отправлено (новых событий: {calendar_stats['new_events']})")
         else:
-            logger.info("📱 Уведомление не отправлено (изменений нет)")
+            logger.info(f"📱 Уведомление не отправлено (новых событий нет, обработано: {calendar_stats['processed']})")
         
         # Выводим отчет в консоль
         print(report)
         
     elif args.command == 'media':
         # Обрабатываем медиа файлы
-        media_stats = process_work_media_files()
+        media_stats = process_work_media_files(
+            max_folders=args.folders,
+            output_format=args.format,
+            quality=args.quality,
+            cleanup=args.cleanup
+        )
         
         # Создаем отчет
         report = create_work_telegram_report({'processed': 0, 'excluded': 0, 'errors': 0, 'details': []}, media_stats)
@@ -523,23 +875,60 @@ def main():
         # Тестируем провайдеры
         logger.info("🧪 Тестирование провайдеров для рабочего аккаунта...")
         
+        # Проверка конфигурации
+        if args.config_only:
+            logger.info("🔧 Проверка конфигурации...")
+            config = ConfigManager('env.work' if os.path.exists('env.work') else '.env')
+            print("📋 Конфигурация:")
+            print(config.get_config_summary())
+            print(f"✅ Валидность: {config.validate_config()}")
+            return
+        
         # Тест календаря
-        calendar_provider = get_work_calendar_provider()
-        if calendar_provider:
-            events = calendar_provider.get_today_events()
-            logger.info(f"✅ Календарь: найдено {len(events)} событий на сегодня")
-        else:
-            logger.error("❌ Календарь: провайдер недоступен")
+        if not args.drive_only:
+            logger.info("📅 Тестирование календаря...")
+            calendar_provider = get_work_calendar_provider()
+            if calendar_provider:
+                events = calendar_provider.get_today_events()
+                logger.info(f"✅ Календарь: найдено {len(events)} событий на сегодня")
+                if args.verbose and events:
+                    for event in events[:3]:
+                        logger.info(f"   - {event.title} ({event.start.strftime('%H:%M')})")
+            else:
+                logger.error("❌ Календарь: провайдер недоступен")
         
         # Тест Google Drive
-        drive_provider = get_work_drive_provider()
-        if drive_provider:
-            files = drive_provider.list_files()
-            logger.info(f"✅ Google Drive: найдено {len(files)} файлов")
-        else:
-            logger.error("❌ Google Drive: провайдер недоступен")
+        if not args.calendar_only:
+            logger.info("💾 Тестирование Google Drive...")
+            drive_provider = get_work_drive_provider()
+            if drive_provider:
+                files = drive_provider.list_files()
+                logger.info(f"✅ Google Drive: найдено {len(files)} файлов")
+                if args.verbose and files:
+                    for file in files[:3]:
+                        logger.info(f"   - {file.name} ({file.mime_type})")
+            else:
+                logger.error("❌ Google Drive: провайдер недоступен")
         
         logger.info("🧪 Тестирование завершено")
+        
+    elif args.command == 'watch':
+        # Режим наблюдения за новыми событиями
+        logger.info(f"👀 Запуск режима наблюдения за новыми событиями...")
+        logger.info(f"⏰ Интервал проверки: {args.interval} секунд")
+        logger.info("⚠️ Режим наблюдения пока не реализован для рабочего аккаунта")
+        logger.info("💡 Используйте команду 'prepare' для обработки событий")
+        
+        # Здесь можно добавить логику наблюдения
+        # Например, периодический запуск prepare команды
+        # import time
+        # while True:
+        #     process_work_calendar_events(days=args.days)
+        #     time.sleep(args.interval)
+        
+    else:
+        logger.error(f"❌ Неизвестная команда: {args.command}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

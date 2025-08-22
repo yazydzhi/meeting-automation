@@ -38,6 +38,31 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+def load_personal_exclusions() -> List[str]:
+    """Загрузить список личных ключевых слов для исключения из файла."""
+    exclusions_file = Path("config/personal_exclusions.txt")
+    exclusions = []
+    
+    if not exclusions_file.exists():
+        logger.warning(f"⚠️ Файл исключений не найден: {exclusions_file}")
+        # Возвращаем базовый список по умолчанию
+        return ['День рождения', 'Дела', 'Личное', 'Personal', 'Отпуск']
+    
+    try:
+        with open(exclusions_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Игнорируем пустые строки и комментарии
+                if line and not line.startswith('#'):
+                    exclusions.append(line)
+        
+        logger.info(f"📋 Загружено {len(exclusions)} исключений из {exclusions_file}")
+        return exclusions
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки исключений: {e}")
+        # Возвращаем базовый список по умолчанию
+        return ['День рождения', 'Дела', 'Личное', 'Personal', 'Отпуск']
+
 def load_personal_environment():
     """Загрузить переменные окружения для личного аккаунта."""
     try:
@@ -116,25 +141,40 @@ def get_personal_drive_provider():
         logger.error(f"❌ Ошибка получения провайдера Google Drive: {e}")
         return None
 
-def filter_personal_events(events: List[CalendarEvent]) -> List[CalendarEvent]:
+def filter_personal_events(events: List[CalendarEvent]) -> tuple[List[CalendarEvent], List[Dict[str, Any]]]:
     """Фильтровать события для личного аккаунта."""
     filtered_events = []
-    excluded_keywords = ['День рождения', 'Дела', 'Рабочее', 'Work']
+    excluded_events = []
+    
+    # Загружаем список исключений из файла
+    personal_keywords = load_personal_exclusions()
     
     for event in events:
-        # Исключаем рабочие события
-        if any(keyword.lower() in event.title.lower() for keyword in excluded_keywords):
+        # Исключаем события по ключевым словам из файла
+        is_excluded = False
+        matched_keywords = []
+        
+        for keyword in personal_keywords:
+            if keyword.lower() in event.title.lower():
+                is_excluded = True
+                matched_keywords.append(keyword)
+        
+        if is_excluded:
             logger.info(f"⏭️ Исключено событие: {event.title}")
+            excluded_events.append({
+                'title': event.title,
+                'start': event.start,
+                'end': event.end,
+                'reason': 'Исключено по ключевому слову',
+                'keywords': matched_keywords
+            })
             continue
         
-        # Проверяем, что это личное событие
-        if any(keyword in event.title.lower() for keyword in ['встреча', 'meeting', 'совещание', 'call', 'личное', 'personal']):
-            filtered_events.append(event)
-            logger.info(f"✅ Добавлено личное событие: {event.title}")
-        else:
-            logger.info(f"⏭️ Пропущено неличное событие: {event.title}")
+        # Все остальные события считаем личными
+        filtered_events.append(event)
+        logger.info(f"✅ Добавлено личное событие: {event.title}")
     
-    return filtered_events
+    return filtered_events, excluded_events
 
 def format_personal_folder_name(event: CalendarEvent) -> str:
     """Форматировать название папки для личного аккаунта."""
@@ -262,7 +302,7 @@ def process_personal_event(event: CalendarEvent, drive_provider) -> Dict[str, An
             'error': str(e)
         }
 
-def process_personal_calendar_events() -> Dict[str, Any]:
+def process_personal_calendar_events(days: int = 2) -> Dict[str, Any]:
     """Обработать события личного календаря."""
     try:
         logger.info("📅 Начинаю обработку личного календаря...")
@@ -273,17 +313,18 @@ def process_personal_calendar_events() -> Dict[str, Any]:
             logger.error("❌ Не удалось получить провайдер календаря")
             return {'processed': 0, 'excluded': 0, 'errors': 0, 'details': []}
         
-        # Получаем события на сегодня и завтра
+        # Получаем события на указанное количество дней
         today = datetime.now().date()
         start_date = datetime.combine(today, datetime.min.time())
-        end_date = start_date + timedelta(days=2)
+        end_date = start_date + timedelta(days=days)
         
         events = calendar_provider.get_events(start_date, end_date)
         logger.info(f"📅 Найдено событий: {len(events)}")
         
         # Фильтруем события
-        filtered_events = filter_personal_events(events)
+        filtered_events, excluded_events = filter_personal_events(events)
         logger.info(f"✅ Отфильтровано личных событий: {len(filtered_events)}")
+        logger.info(f"⏭️ Исключено событий: {len(excluded_events)}")
         
         # Получаем провайдер Google Drive
         drive_provider = get_personal_drive_provider()
@@ -305,13 +346,14 @@ def process_personal_calendar_events() -> Dict[str, Any]:
                 logger.error(f"❌ Ошибка обработки события {event.title}: {e}")
         
         # Статистика
-        excluded_count = len(events) - len(filtered_events)
+        excluded_count = len(excluded_events)
         
         result = {
             'processed': processed_events,
             'excluded': excluded_count,
             'errors': len(events) - processed_events - excluded_count,
-            'details': processed_details
+            'details': processed_details,
+            'excluded_details': excluded_events
         }
         
         logger.info(f"📊 Статистика обработки: {result}")
@@ -470,12 +512,27 @@ def main():
     parser = argparse.ArgumentParser(description='Автоматизация встреч для личного аккаунта')
     parser.add_argument('command', choices=['prepare', 'media', 'test'], 
                        help='Команда для выполнения')
+    parser.add_argument('--days', type=int, default=2,
+                       help='Количество дней для обработки календаря')
     parser.add_argument('--folders', type=int, default=5,
                        help='Максимум папок для обработки')
     parser.add_argument('--cleanup', action='store_true',
                        help='Очистить старые файлы')
+    parser.add_argument('--verbose', action='store_true',
+                       help='Подробный режим логирования')
+    parser.add_argument('--config-only', action='store_true',
+                       help='Только проверка конфигурации')
+    parser.add_argument('--calendar-only', action='store_true',
+                       help='Только проверка календаря')
+    parser.add_argument('--drive-only', action='store_true',
+                       help='Только проверка Google Drive')
     
     args = parser.parse_args()
+    
+    # Настраиваем логирование
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.info("🔍 Включен подробный режим логирования")
     
     # Загружаем переменные окружения
     if not load_personal_environment():
@@ -486,7 +543,7 @@ def main():
     
     if args.command == 'prepare':
         # Обрабатываем календарь
-        calendar_stats = process_personal_calendar_events()
+        calendar_stats = process_personal_calendar_events(args.days)
         
         # Создаем отчет
         report = create_personal_telegram_report(calendar_stats)
@@ -522,6 +579,42 @@ def main():
         # Тестируем провайдеры
         logger.info("🧪 Тестирование провайдеров для личного аккаунта...")
         
+        if args.config_only:
+            logger.info("🔧 Проверка только конфигурации...")
+            # Проверяем переменные окружения
+            required_vars = [
+                'GOOGLE_CREDENTIALS', 'PERSONAL_CALENDAR_ID', 'PERSONAL_DRIVE_PARENT_ID',
+                'NOTION_TOKEN', 'NOTION_DATABASE_ID', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID'
+            ]
+            for var in required_vars:
+                value = os.getenv(var)
+                if value:
+                    logger.info(f"✅ {var}: {value[:8]}..." if len(value) > 8 else f"✅ {var}: {value}")
+                else:
+                    logger.error(f"❌ {var}: не установлен")
+            return
+        
+        if args.calendar_only:
+            logger.info("📅 Проверка только календаря...")
+            calendar_provider = get_personal_calendar_provider()
+            if calendar_provider:
+                events = calendar_provider.get_today_events()
+                logger.info(f"✅ Календарь: найдено {len(events)} событий на сегодня")
+            else:
+                logger.error("❌ Календарь: провайдер недоступен")
+            return
+        
+        if args.drive_only:
+            logger.info("💾 Проверка только Google Drive...")
+            drive_provider = get_personal_drive_provider()
+            if drive_provider:
+                files = drive_provider.list_files()
+                logger.info(f"✅ Google Drive: найдено {len(files)} файлов")
+            else:
+                logger.error("❌ Google Drive: провайдер недоступен")
+            return
+        
+        # Полное тестирование
         # Тест календаря
         calendar_provider = get_personal_calendar_provider()
         if calendar_provider:
