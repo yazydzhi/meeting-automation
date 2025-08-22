@@ -17,6 +17,7 @@ tokens/
 # Editors
 .vscode/
 .idea/
+.cursor/
 
 # OS
 .DS_Store
