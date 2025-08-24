@@ -18,64 +18,44 @@ except ImportError as e:
     print("Убедитесь, что вы находитесь в корневой директории проекта")
     sys.exit(1)
 
-def test_audio_processor(audio_file: str, config_file: str = None, output_format: str = 'json'):
+def test_audio_processor(audio_file_path: str, config_file: str = None, output_format: str = 'json'):
     """Тестирование аудио процессора"""
+    print("🎤 Тестирование аудио процессора...")
+    print(f"📁 Аудио файл: {audio_file_path}")
+    print(f"⚙️  Конфигурация: {'по умолчанию' if not config_file else config_file}")
+    print(f"📝 Формат вывода: {output_format}")
+    print("-" * 50)
+    
     try:
-        print(f"🎤 Тестирование аудио процессора...")
-        print(f"📁 Аудио файл: {audio_file}")
-        print(f"⚙️  Конфигурация: {config_file or 'по умолчанию'}")
-        print(f"📝 Формат вывода: {output_format}")
-        print("-" * 50)
-        
-        # Проверяем существование файла
-        if not os.path.exists(audio_file):
-            print(f"❌ Аудио файл не найден: {audio_file}")
-            return False
-            
-        # Создаем процессор
+        # Инициализируем процессор
         processor = AudioProcessor(config_file)
         print("✅ Аудио процессор инициализирован")
         
-        # Обрабатываем файл
+        # Обрабатываем аудио
         print("🔄 Начинаю обработку аудио...")
-        result = processor.process_audio_file(audio_file, output_format)
+        result = processor.process_audio_file(audio_file_path, output_format)
         
-        if result:
-            print("✅ Обработка завершена успешно!")
-            print(f"📊 Статистика:")
-            print(f"   📁 Файл: {result['file_path']}")
-            print(f"   📏 Размер: {result['file_size']} байт")
-            print(f"   ⏱️  Длительность: {result['duration']}ms")
-            print(f"   🔢 Сегментов: {result['segments_count']}")
-            print(f"   👥 Участников: {result['speakers_count']}")
-            print(f"   🤖 Модель Whisper: {result['whisper_model']}")
-            print(f"   🌍 Язык: {result['language']}")
-            
-            # Показываем участников
-            if result['transcription']:
-                print(f"\n👥 Участники разговора:")
-                for i, speaker in enumerate(result['transcription'], 1):
-                    print(f"   {speaker['speaker_id']}:")
-                    print(f"      ⏱️  Общая длительность: {speaker['total_duration']}ms")
-                    print(f"      📝 Сегментов: {len(speaker['segments'])}")
-                    
-                    # Показываем первые несколько сегментов
-                    for j, segment in enumerate(speaker['segments'][:3], 1):
-                        text = segment['text'][:100] + "..." if len(segment['text']) > 100 else segment['text']
-                        print(f"         {j}. [{segment['start_time']}-{segment['end_time']}ms] {text}")
-                    
-                    if len(speaker['segments']) > 3:
-                        print(f"         ... и еще {len(speaker['segments']) - 3} сегментов")
-                    print()
-            
-            return True
-        else:
-            print("❌ Обработка не удалась")
-            return False
-            
+        print("✅ Обработка завершена успешно!")
+        print("📊 Статистика:")
+        print(f"   📁 Файл: {result.get('file_path', 'N/A')}")
+        print(f"   📏 Размер: {result.get('file_size', 'N/A')} байт")
+        print(f"   ⏱️  Длительность: {result.get('total_duration', 'N/A')} мс")
+        print(f"   🔢 Сегментов: {result.get('total_segments', 'N/A')}")
+        print(f"   👥 Спикеров: {len(result.get('speakers', {}))}")
+        
+        # Показываем детали по спикерам
+        if result.get('speakers'):
+            print("\n🗣️  Детали по спикерам:")
+            for speaker, segments in result['speakers'].items():
+                print(f"   {speaker}: {len(segments)} сегментов")
+                total_text = sum(len(seg.get('text', '')) for seg in segments)
+                print(f"      Общий текст: {total_text} символов")
+        
+        return result
+        
     except Exception as e:
         print(f"❌ Ошибка тестирования: {e}")
-        return False
+        return None
 
 def main():
     """Основная функция"""
@@ -89,10 +69,10 @@ def main():
     args = parser.parse_args()
     
     # Тестируем процессор
-    success = test_audio_processor(args.audio_file, args.config, args.output)
+    result = test_audio_processor(args.audio_file, args.config, args.output)
     
     # Очищаем временные файлы если нужно
-    if args.cleanup and success:
+    if args.cleanup and result:
         try:
             processor = AudioProcessor(args.config)
             processor.cleanup_temp_files()
@@ -101,7 +81,7 @@ def main():
             print(f"⚠️ Не удалось очистить временные файлы: {e}")
     
     # Результат
-    if success:
+    if result:
         print("🎉 Тестирование завершено успешно!")
         sys.exit(0)
     else:

@@ -409,6 +409,12 @@ def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
                         try:
                             logger.info(f"🎬 Обрабатываю видео: {video_file.name}")
                             
+                            # Проверяем, не содержит ли название файла слово "compressed"
+                            if 'compressed' in video_file.name.lower():
+                                logger.info(f"⏭️ Пропускаю уже обработанное видео: {video_file.name}")
+                                folder_processed += 1
+                                continue
+                            
                             # Получаем локальный путь к файлу
                             local_video_path = video_file.local_path
                             if not local_video_path or not os.path.exists(local_video_path):

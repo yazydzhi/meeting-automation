@@ -108,6 +108,11 @@ class MediaProcessor:
         Returns:
             True если файл уже обработан
         """
+        # Проверяем, содержит ли название файла слово "compressed"
+        file_name = os.path.basename(file_path).lower()
+        if 'compressed' in file_name:
+            return True
+        
         status_file = file_path + STATUS_EXTENSION
         
         # Проверяем существование статус файла

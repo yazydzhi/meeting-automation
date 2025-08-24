@@ -11,6 +11,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict, Any
 import time
+import json
 
 # Добавляем путь к src для импорта модулей
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -37,30 +38,48 @@ def setup_logging():
 
 def find_mp3_files(root_path: str, recursive: bool = True) -> List[Path]:
     """
-    Найти все MP3 файлы в указанной папке
+    Найти MP3 и видео файлы в указанной папке
     
     Args:
         root_path: Путь к корневой папке
         recursive: Искать рекурсивно в подпапках
         
     Returns:
-        Список путей к MP3 файлам
+        Список путей к найденным файлам
     """
-    mp3_files = []
     root = Path(root_path)
-    
-    if not root.exists():
-        print(f"❌ Папка не найдена: {root_path}")
-        return []
+    mp3_files = []
     
     if recursive:
         # Рекурсивный поиск
         for mp3_file in root.rglob("*.mp3"):
             mp3_files.append(mp3_file)
+        # Добавляем поддержку видео файлов
+        for video_file in root.rglob("*.mp4"):
+            mp3_files.append(video_file)
+        for video_file in root.rglob("*.m4a"):
+            mp3_files.append(video_file)
+        for video_file in root.rglob("*.avi"):
+            mp3_files.append(video_file)
+        for video_file in root.rglob("*.mov"):
+            mp3_files.append(video_file)
+        for video_file in root.rglob("*.mkv"):
+            mp3_files.append(video_file)
     else:
         # Только в текущей папке
         for mp3_file in root.glob("*.mp3"):
             mp3_files.append(mp3_file)
+        # Добавляем поддержку видео файлов
+        for video_file in root.glob("*.mp4"):
+            mp3_files.append(video_file)
+        for video_file in root.glob("*.m4a"):
+            mp3_files.append(video_file)
+        for video_file in root.glob("*.avi"):
+            mp3_files.append(video_file)
+        for video_file in root.glob("*.mov"):
+            mp3_files.append(video_file)
+        for video_file in root.glob("*.mkv"):
+            mp3_files.append(video_file)
     
     return sorted(mp3_files)
 
@@ -105,18 +124,43 @@ def process_mp3_file(audio_processor: AudioProcessor, mp3_file: Path, output_for
         result = audio_processor.process_audio_file(str(mp3_file), output_format)
         processing_time = time.time() - start_time
         
-        if result and result.get('transcription'):
+        if result and result.get('speakers'):
             print(f"   ✅ Транскрипция завершена за {processing_time:.1f}с")
-            print(f"   📝 Результат: {output_file.name}")
-            print(f"   👥 Участников: {result.get('speakers_count', 0)}")
+            
+            # Отладочная информация
+            print(f"   🔍 Отладка: результат содержит ключи: {list(result.keys())}")
+            print(f"   🔍 Отладка: speakers = {result.get('speakers')}")
+            print(f"   🔍 Отладка: total_segments = {result.get('total_segments')}")
+            print(f"   🔍 Отладка: file_size = {result.get('file_size')}")
+            
+            # Сохраняем транскрипт в папку с MP3 файлом
+            if output_format == 'txt':
+                transcript_content = create_txt_transcript(result, mp3_file)
+            elif output_format == 'md':
+                transcript_content = create_md_transcript(result, mp3_file)
+            elif output_format == 'csv':
+                transcript_content = create_csv_transcript(result, mp3_file)
+            else:
+                # Для других форматов сохраняем как есть
+                transcript_content = json.dumps(result, ensure_ascii=False, indent=2)
+            
+            print(f"   🔍 Отладка: создан контент длиной {len(transcript_content)} символов")
+            
+            # Сохраняем файл
+            with open(output_file, 'w', encoding='utf-8') as f:
+                f.write(transcript_content)
+            
+            print(f"   📝 Результат сохранен: {output_file.name}")
+            print(f"   👥 Участников: {len(result.get('speakers', {}))}")
+            print(f"   🔢 Сегментов: {result.get('total_segments', 0)}")
             
             return {
                 'status': 'success',
                 'file': str(mp3_file),
                 'output': str(output_file),
                 'processing_time': processing_time,
-                'speakers_count': result.get('speakers_count', 0),
-                'segments_count': result.get('segments_count', 0)
+                'speakers_count': len(result.get('speakers', {})),
+                'segments_count': result.get('total_segments', 0)
             }
         else:
             print(f"   ❌ Транскрипция не удалась")
@@ -136,45 +180,73 @@ def process_mp3_file(audio_processor: AudioProcessor, mp3_file: Path, output_for
             'error': str(e)
         }
 
+def create_txt_transcript(result: Dict[str, Any], mp3_file: Path) -> str:
+    """Создать текстовый транскрипт"""
+    txt_content = f"ТРАНСКРИПЦИЯ: {mp3_file.name}\n"
+    txt_content += f"Файл: {mp3_file.name}\n"
+    txt_content += f"Размер: {result.get('file_size', 0)} байт\n"
+    txt_content += f"Длительность: {result.get('total_duration', 0)} мс\n"
+    txt_content += f"Сегментов: {result.get('total_segments', 0)}\n"
+    txt_content += f"Участников: {len(result.get('speakers', {}))}\n"
+    txt_content += f"Обработано: {result.get('processed_at', 'unknown')}\n\n"
+    
+    txt_content += "=" * 50 + "\n\n"
+    
+    if result.get('speakers'):
+        for speaker_name, segments in result['speakers'].items():
+            txt_content += f"=== {speaker_name} ===\n"
+            for segment in segments:
+                start_time = segment.get('start_time', 0) / 1000  # в секунды
+                end_time = segment.get('end_time', 0) / 1000
+                text = segment.get('text', '')
+                txt_content += f"[{start_time:.1f}s - {end_time:.1f}s] {text}\n"
+            txt_content += "\n"
+    
+    return txt_content
+
 def create_md_transcript(result: Dict[str, Any], mp3_file: Path) -> str:
     """Создать Markdown транскрипт"""
+    print(f"🔍 create_md_transcript: result = {result}")
+    print(f"🔍 create_md_transcript: mp3_file = {mp3_file}")
+    
     md_content = f"# Транскрипция: {mp3_file.name}\n\n"
     md_content += f"**Файл:** {mp3_file.name}\n"
     md_content += f"**Размер:** {result.get('file_size', 0)} байт\n"
-    md_content += f"**Длительность:** {result.get('duration', 0)}ms\n"
-    md_content += f"**Сегментов:** {result.get('segments_count', 0)}\n"
-    md_content += f"**Участников:** {result.get('speakers_count', 0)}\n"
-    md_content += f"**Модель Whisper:** {result.get('whisper_model', 'unknown')}\n"
-    md_content += f"**Язык:** {result.get('language', 'unknown')}\n\n"
+    md_content += f"**Длительность:** {result.get('total_duration', 0)} мс\n"
+    md_content += f"**Сегментов:** {result.get('total_segments', 0)}\n"
+    md_content += f"**Участников:** {len(result.get('speakers', {}))}\n"
+    md_content += f"**Обработано:** {result.get('processed_at', 'unknown')}\n\n"
     
     md_content += "---\n\n"
     
-    if result.get('transcription'):
-        for speaker in result['transcription']:
-            md_content += f"## {speaker['speaker_id']}\n\n"
-            md_content += f"**Общая длительность:** {speaker['total_duration']}ms\n\n"
+    if result.get('speakers'):
+        for speaker_name, segments in result['speakers'].items():
+            md_content += f"## {speaker_name}\n\n"
             
-            for segment in speaker['segments']:
-                start_time = segment['start_time'] / 1000  # в секунды
-                end_time = segment['end_time'] / 1000
-                md_content += f"**[{start_time:.1f}s - {end_time:.1f}s]** {segment['text']}\n\n"
+            for segment in segments:
+                start_time = segment.get('start_time', 0) / 1000  # в секунды
+                end_time = segment.get('end_time', 0) / 1000
+                text = segment.get('text', '')
+                md_content += f"**[{start_time:.1f}s - {end_time:.1f}s]** {text}\n\n"
     
+    print(f"🔍 create_md_transcript: создан контент длиной {len(md_content)} символов")
     return md_content
 
 def create_csv_transcript(result: Dict[str, Any], mp3_file: Path) -> str:
     """Создать CSV транскрипт"""
     csv_content = "speaker_id,start_time,end_time,duration,text\n"
     
-    if result.get('transcription'):
-        for speaker in result['transcription']:
-            for segment in speaker['segments']:
-                start_time = segment['start_time'] / 1000  # в секунды
-                end_time = segment['end_time'] / 1000
-                duration = segment['duration'] / 1000
+    if result.get('speakers'):
+        for speaker_name, segments in result['speakers'].items():
+            for segment in segments:
+                start_time = segment.get('start_time', 0) / 1000  # в секунды
+                end_time = segment.get('end_time', 0) / 1000
+                duration = segment.get('duration', 0) / 1000
+                text = segment.get('text', '')
                 
                 # Экранируем запятые и кавычки в тексте
-                text = segment['text'].replace('"', '""')
-                csv_content += f'"{speaker["speaker_id"]}",{start_time:.1f},{end_time:.1f},{duration:.1f},"{text}"\n'
+                text = text.replace('"', '""')
+                csv_content += f'"{speaker_name}",{start_time:.1f},{end_time:.1f},{duration:.1f},"{text}"\n'
     
     return csv_content
 
@@ -210,7 +282,7 @@ def process_folders(folders: List[str], output_format: str = 'txt', recursive: b
     """
     logger = setup_logging()
     
-    print(f"🚀 Начинаю обработку MP3 файлов...")
+    print(f"🚀 Начинаю обработку аудио и видео файлов...")
     print(f"📁 Папки: {', '.join(folders)}")
     print(f"📝 Формат вывода: {output_format.upper()}")
     print(f"🔄 Рекурсивный поиск: {'Да' if recursive else 'Нет'}")
@@ -240,10 +312,10 @@ def process_folders(folders: List[str], output_format: str = 'txt', recursive: b
         mp3_files = find_mp3_files(folder, recursive)
         
         if not mp3_files:
-            print(f"   ℹ️  MP3 файлы не найдены")
+            print(f"   ℹ️  Аудио и видео файлы не найдены")
             continue
         
-        print(f"   🎵 Найдено MP3 файлов: {len(mp3_files)}")
+        print(f"   🎵 Найдено файлов: {len(mp3_files)}")
         
         # Обрабатываем файлы
         for mp3_file in mp3_files:
@@ -257,10 +329,10 @@ def process_folders(folders: List[str], output_format: str = 'txt', recursive: b
                 processed_files += 1
                 total_processing_time += result.get('processing_time', 0)
                 
-                # Для md и csv форматов сохраняем дополнительно
-                if output_format in ['md', 'csv']:
-                    output_file = Path(result['output'])
-                    save_transcript(result, mp3_file, output_format, output_file)
+                # Файл уже сохранен в process_mp3_file, дополнительное сохранение не нужно
+                # if output_format in ['md', 'csv']:
+                #     output_file = Path(result['output'])
+                #     save_transcript(result, mp3_file, output_format, output_file)
                     
             elif result['status'] == 'skipped':
                 skipped_files += 1
@@ -272,7 +344,7 @@ def process_folders(folders: List[str], output_format: str = 'txt', recursive: b
     print("📊 ИТОГОВАЯ СТАТИСТИКА")
     print("=" * 60)
     print(f"📁 Всего папок: {len(folders)}")
-    print(f"🎵 Всего MP3 файлов: {total_files}")
+    print(f"🎵 Всего файлов: {total_files}")
     print(f"✅ Успешно обработано: {processed_files}")
     print(f"⏭️  Пропущено: {skipped_files}")
     print(f"❌ Ошибок: {error_files}")
