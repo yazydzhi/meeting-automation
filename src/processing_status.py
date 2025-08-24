@@ -87,6 +87,16 @@ class ProcessingStatus:
         
         file_info = self.status_data['files'][file_name]
         
+        # Проверяем, не добавлен ли уже этот этап
+        existing_step = next(
+            (s for s in file_info.get('processing_steps', []) if s.get('step') == step), 
+            None
+        )
+        
+        if existing_step:
+            print(f"⚠️ Этап {step} уже существует для файла {file_name}")
+            return
+        
         # Добавляем информацию об этапе обработки
         step_info = {
             'step': step,

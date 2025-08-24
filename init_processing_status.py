@@ -56,7 +56,11 @@ def init_all_processing_status():
                         compressed_video = subfolder / f"{video_file.stem}_compressed.mp4"
                         compressed_audio = subfolder / f"{video_file.stem}_compressed.mp3"
                         
-                        if compressed_video.exists():
+                        # Проверяем все необходимые этапы
+                        video_processed = compressed_video.exists()
+                        audio_processed = compressed_audio.exists()
+                        
+                        if video_processed:
                             print(f"      ✅ Сжатое видео уже существует: {compressed_video.name}")
                             status.mark_file_processed(
                                 video_file.name, 
@@ -64,13 +68,23 @@ def init_all_processing_status():
                                 [str(compressed_video)]
                             )
                         
-                        if compressed_audio.exists():
+                        if audio_processed:
                             print(f"      ✅ Аудио файл уже существует: {compressed_audio.name}")
                             status.mark_file_processed(
                                 video_file.name, 
                                 'audio_extraction',
                                 [str(compressed_audio)]
                             )
+                        else:
+                            print(f"      ❌ Аудио файл не найден - файл частично обработан")
+                            
+                        # Проверяем итоговый статус
+                        if video_processed and audio_processed:
+                            print(f"      ✅ Файл полностью обработан")
+                        elif video_processed:
+                            print(f"      🔄 Файл частично обработан (только видео)")
+                        else:
+                            print(f"      ❌ Файл не обработан")
                     else:
                         print(f"   ⏭️ Пропускаем уже сжатый файл: {video_file.name}")
                 
