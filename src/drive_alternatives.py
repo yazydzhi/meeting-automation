@@ -376,8 +376,10 @@ class LocalDriveProvider(DriveProvider):
         
         mime_types = {
             '.mp4': 'video/mp4',
+            '.mov': 'video/quicktime',
             '.mkv': 'video/x-matroska',
             '.webm': 'video/webm',
+            '.avi': 'video/x-msvideo',
             '.mp3': 'audio/mpeg',
             '.wav': 'audio/wav',
             '.pdf': 'application/pdf',
