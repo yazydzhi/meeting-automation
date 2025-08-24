@@ -22,7 +22,31 @@ class ConfigManager:
     
     def load_config(self):
         """Загрузить конфигурацию из .env файла."""
+        logger.info(f"🔧 Загружаю конфигурацию из файла: {self.env_file}")
+        
+        # Пробуем load_dotenv
         load_dotenv(self.env_file)
+        
+        # Альтернативный способ загрузки переменных
+        if os.path.exists(self.env_file):
+            with open(self.env_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#') and '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip()
+                        value = value.strip()
+                        # Убираем кавычки если есть
+                        if value.startswith('"') and value.endswith('"'):
+                            value = value[1:-1]
+                        elif value.startswith("'") and value.endswith("'"):
+                            value = value[1:-1]
+                        os.environ[key] = value
+                        logger.info(f"🔧 Загружена переменная: {key}={value}")
+        
+        # Проверяем загруженные переменные
+        transcription_method = os.getenv('TRANSCRIPTION_METHOD', 'NOT_FOUND')
+        logger.info(f"🔧 TRANSCRIPTION_METHOD: {transcription_method}")
         
         # Настройки календаря
         self.config['calendar'] = {
@@ -69,6 +93,20 @@ class ConfigManager:
             'log_level': os.getenv('LOG_LEVEL', 'INFO')
         }
         
+        # Настройки Whisper и транскрипции
+        self.config['whisper'] = {
+            'transcription_method': os.getenv('TRANSCRIPTION_METHOD', 'openai'),
+            'openai_api_key': os.getenv('OPENAI_API_KEY', ''),
+            'whisper_model': os.getenv('WHISPER_MODEL', 'whisper-1'),
+            'whisper_model_local': os.getenv('WHISPER_MODEL_LOCAL', 'base'),
+            'whisper_language': os.getenv('WHISPER_LANGUAGE', 'ru'),
+            'whisper_task': os.getenv('WHISPER_TASK', 'transcribe'),
+            'remove_echo': os.getenv('REMOVE_ECHO', 'true').lower() == 'true',
+            'audio_normalize': os.getenv('AUDIO_NORMALIZE', 'true').lower() == 'true',
+            'temp_audio_root': os.getenv('TEMP_AUDIO_ROOT', 'data/temp_audio')
+        }
+        
+        logger.info(f"🔧 Настройки Whisper: {self.config['whisper']}")
         logger.info("Конфигурация загружена")
     
     def get_calendar_config(self) -> Dict[str, Any]:

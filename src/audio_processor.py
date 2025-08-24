@@ -48,10 +48,20 @@ class AudioProcessor:
         # Инициализируем транскриптор в зависимости от настроек
         self.transcription_method = self.config.get('TRANSCRIPTION_METHOD', 'openai')
         
+        self.logger.info(f"🔧 Инициализация AudioProcessor с методом: {self.transcription_method}")
+        self.logger.info(f"🔧 Конфигурация: {self.config}")
+        
         if self.transcription_method == 'openai':
+            # Проверяем наличие API ключа только для OpenAI
+            if not self.config.get('OPENAI_API_KEY'):
+                raise ValueError("OPENAI_API_KEY не найден в конфигурации для использования OpenAI API")
+            self.logger.info("🚀 Инициализирую OpenAI API...")
             self.client = self._setup_openai()
+            self.logger.info(f"🔧 OpenAI клиент инициализирован: {self.client is not None}")
         elif self.transcription_method == 'whisper':
+            self.logger.info("🎤 Инициализирую локальный Whisper...")
             self.whisper_model = self._setup_openai_whisper()
+            self.logger.info(f"🔧 Whisper модель инициализирована: {self.whisper_model is not None}")
         else:
             raise ValueError(f"Неизвестный метод транскрипции: {self.transcription_method}. Поддерживаемые: openai, whisper")
             
@@ -64,7 +74,26 @@ class AudioProcessor:
             if config_file and os.path.exists(config_file):
                 # Загружаем из указанного файла
                 config_manager = ConfigManager(config_file)
-                return config_manager.config
+                config = config_manager.config
+                
+                # Извлекаем настройки Whisper из новой структуры
+                whisper_config = config.get('whisper', {})
+                return {
+                    'TRANSCRIPTION_METHOD': whisper_config.get('transcription_method', 'openai'),
+                    'OPENAI_API_KEY': whisper_config.get('openai_api_key', ''),
+                    'WHISPER_MODEL': whisper_config.get('whisper_model', 'whisper-1'),
+                    'WHISPER_BEAM_SIZE': int(whisper_config.get('whisper_beam_size', '5')),
+                    'WHISPER_TEMPERATURE': float(whisper_config.get('whisper_temperature', '0.0')),
+                    'WHISPER_MODEL_LOCAL': whisper_config.get('whisper_model_local', 'base'),
+                    'WHISPER_LANGUAGE': whisper_config.get('whisper_language', 'ru'),
+                    'WHISPER_TASK': whisper_config.get('whisper_task', 'transcribe'),
+                    'REMOVE_ECHO': whisper_config.get('remove_echo', True),
+                    'AUDIO_NORMALIZE': whisper_config.get('audio_normalize', True),
+                    'TEMP_AUDIO_ROOT': whisper_config.get('temp_audio_root', 'data/temp_audio'),
+                    'TRANSCRIPT_OUTPUT_ROOT': 'data/transcripts',
+                    'AUDIO_PROCESSING_ROOT': 'data/audio_processing',
+                    'LOG_FILE': 'logs/audio_processing.log'
+                }
             else:
                 # Загружаем из переменных окружения
                 config = {}
@@ -144,15 +173,24 @@ class AudioProcessor:
     def _setup_openai(self):
         """Настройка OpenAI API"""
         api_key = self.config.get('OPENAI_API_KEY')
+        self.logger.info(f"🔧 Настройка OpenAI API с ключом: {api_key[:10]}...")
+        
         if not api_key:
             raise ValueError("OPENAI_API_KEY не найден в конфигурации")
             
         try:
             from openai import OpenAI
+            self.logger.info("🔧 Импорт OpenAI модуля успешен")
             self.client = OpenAI(api_key=api_key)
+            self.logger.info(f"🔧 OpenAI клиент создан: {self.client}")
             self.logger.info("OpenAI API настроен успешно")
-        except ImportError:
+            return self.client
+        except ImportError as e:
+            self.logger.error(f"❌ Ошибка импорта OpenAI: {e}")
             raise ImportError("Установите openai: pip install openai")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания OpenAI клиента: {e}")
+            raise
             
     def _setup_openai_whisper(self):
         """Настройка оригинального OpenAI Whisper"""
@@ -298,6 +336,114 @@ class AudioProcessor:
         self.logger.info(f"Длина транскрипта: {len(full_transcript)} символов")
         
         return result
+        
+    def process_audio_file_with_advanced_segmentation(self, audio_file_path: str, segmentation_method: str = 'adaptive') -> Dict[str, Any]:
+        """Обработка аудио файла с продвинутыми методами сегментации"""
+        try:
+            self.logger.info(f"Начинаю обработку с продвинутой сегментацией: {segmentation_method}")
+            
+            if not os.path.exists(audio_file_path):
+                raise FileNotFoundError(f"Аудио файл не найден: {audio_file_path}")
+            
+            # Импортируем модуль продвинутой сегментации
+            try:
+                from advanced_segmentation import AdvancedSegmentation
+            except ImportError:
+                self.logger.error("Модуль advanced_segmentation не найден")
+                return self.process_audio_file_full(audio_file_path)
+            
+            # Создаем экземпляр сегментатора
+            segmenter = AdvancedSegmentation(self.config)
+            
+            # Шаг 1: Подготовка аудио
+            prepared_audio_path = self._prepare_audio(audio_file_path)
+            
+            # Шаг 2: Сегментация в зависимости от метода
+            if segmentation_method == 'intonation':
+                segments = segmenter.segment_by_intonation_patterns(prepared_audio_path)
+            elif segmentation_method == 'emotion':
+                segments = segmenter.segment_by_emotional_patterns(prepared_audio_path)
+            elif segmentation_method == 'energy':
+                segments = segmenter.segment_by_energy_patterns(prepared_audio_path)
+            elif segmentation_method == 'adaptive':
+                segments = segmenter.segment_by_context_awareness(prepared_audio_path)
+            else:
+                self.logger.warning(f"Неизвестный метод сегментации: {segmentation_method}, использую адаптивный")
+                segments = segmenter.segment_by_context_awareness(prepared_audio_path)
+            
+            if not segments:
+                self.logger.warning("Сегментация не дала результатов, использую полную транскрипцию")
+                return self.process_audio_file_full(audio_file_path)
+            
+            # Шаг 3: Транскрипция каждого сегмента
+            transcriptions = []
+            for i, segment in enumerate(segments):
+                self.logger.info(f"Транскрибирую сегмент {i+1}/{len(segments)} ({segment.get('segmentation_method', 'unknown')})")
+                
+                # Создаем временный файл для сегмента
+                segment_audio = segment.get('audio')
+                if segment_audio is not None:
+                    # Сохраняем сегмент во временный файл
+                    temp_segment_path = os.path.join(
+                        self.config.get('TEMP_AUDIO_ROOT', 'data/temp_audio'),
+                        f"segment_{i+1:03d}_{segment['start_time']:06d}ms_{segment['end_time']:06d}ms.wav"
+                    )
+                    
+                    import soundfile as sf
+                    sf.write(temp_segment_path, segment_audio, 16000)
+                    
+                    # Транскрибируем сегмент
+                    transcript = self._transcribe_full_audio(temp_segment_path)
+                    
+                    # Удаляем временный файл сегмента
+                    try:
+                        os.remove(temp_segment_path)
+                    except:
+                        pass
+                    
+                    if transcript:
+                        transcriptions.append({
+                            'segment': i + 1,
+                            'start_time': segment['start_time'],
+                            'end_time': segment['end_time'],
+                            'duration': segment['duration'],
+                            'text': transcript,
+                            'segmentation_method': segment.get('segmentation_method', 'unknown')
+                        })
+                else:
+                    self.logger.warning(f"Сегмент {i+1} не содержит аудио данных")
+            
+            # Шаг 4: Группировка по спикерам
+            speaker_groups = self._group_by_speakers_improved(transcriptions)
+            
+            # Шаг 5: Формирование результата
+            result = {
+                'file_path': audio_file_path,
+                'file_size': os.path.getsize(audio_file_path),
+                'processed_at': datetime.now().isoformat(),
+                'total_segments': len(segments),
+                'total_duration': sum(seg['duration'] for seg in segments),
+                'speakers': speaker_groups,
+                'raw_transcriptions': transcriptions,
+                'segmentation_method': segmentation_method,
+                'processing_info': {
+                    'echo_removed': self.config.get('REMOVE_ECHO', True),
+                    'audio_normalized': self.config.get('AUDIO_NORMALIZE', True),
+                    'advanced_segmentation': True,
+                    'segmentation_method': segmentation_method,
+                    'whisper_model': self.config.get('WHISPER_MODEL', 'whisper-1'),
+                    'original_audio_file': audio_file_path,
+                    'prepared_audio_file': prepared_audio_path
+                }
+            }
+            
+            self.logger.info(f"Продвинутая сегментация завершена. Результат: {len(speaker_groups)} спикеров")
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка продвинутой сегментации: {e}")
+            # Fallback на обычную обработку
+            return self.process_audio_file_full(audio_file_path)
         
     def _prepare_audio(self, audio_file_path: str) -> str:
         """Подготовка аудио: конвертация, нормализация, устранение эха, сжатие для API"""
@@ -828,14 +974,31 @@ class AudioProcessor:
         return temp_file
         
     def _transcribe_with_whisper(self, segment: Dict[str, Any], prepared_audio_path: str) -> Optional[str]:
-        """Транскрипция сегмента через OpenAI Whisper API"""
+        """Транскрипция сегмента через выбранный метод"""
+        try:
+            # Создаем временный файл для сегмента
+            temp_file = self._save_segment_temp(segment, segment['start_time'])
+            
+            if self.transcription_method == 'openai':
+                # Используем OpenAI API
+                return self._transcribe_segment_with_openai_api(temp_file)
+            elif self.transcription_method == 'whisper':
+                # Используем локальный Whisper
+                return self._transcribe_segment_with_local_whisper(temp_file)
+            else:
+                self.logger.error(f"Неизвестный метод транскрипции: {self.transcription_method}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"Ошибка транскрипции сегмента: {e}")
+            return None
+            
+    def _transcribe_segment_with_openai_api(self, temp_file: str) -> Optional[str]:
+        """Транскрипция сегмента через OpenAI API"""
         try:
             # Получаем параметры конфигурации
             model = self.config.get('WHISPER_MODEL', 'whisper-1')
             language = self.config.get('WHISPER_LANGUAGE', 'ru')
-            
-            # Создаем временный файл для сегмента
-            temp_file = self._save_segment_temp(segment, segment['start_time'])
             
             with open(temp_file, "rb") as audio_file:
                 # Создаем параметры для API
@@ -849,9 +1012,6 @@ class AudioProcessor:
                 if language and language != 'auto':
                     params['language'] = language
                 
-                # OpenAI API не поддерживает beam_size и temperature для transcriptions
-                # Эти параметры доступны только для chat completions
-                
                 response = self.client.audio.transcriptions.create(**params)
                 
             # Удаляем временный файл
@@ -860,7 +1020,36 @@ class AudioProcessor:
             return response.text.strip()
             
         except Exception as e:
-            self.logger.error(f"Ошибка транскрипции сегмента: {e}")
+            self.logger.error(f"Ошибка OpenAI API транскрипции сегмента: {e}")
+            # Удаляем временный файл в случае ошибки
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+            return None
+            
+    def _transcribe_segment_with_local_whisper(self, temp_file: str) -> Optional[str]:
+        """Транскрипция сегмента через локальный Whisper"""
+        try:
+            # Получаем параметры конфигурации
+            language = self.config.get('WHISPER_LANGUAGE', 'ru')
+            task = self.config.get('WHISPER_TASK', 'transcribe')
+            
+            # Транскрибируем сегмент
+            result = self.whisper_model.transcribe(
+                temp_file,
+                language=language,
+                task=task
+            )
+            
+            # Удаляем временный файл
+            os.remove(temp_file)
+            
+            return result['text'].strip()
+            
+        except Exception as e:
+            self.logger.error(f"Ошибка локальной Whisper транскрипции сегмента: {e}")
+            # Удаляем временный файл в случае ошибки
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
             return None
             
     def _transcribe_full_audio(self, audio_file_path: str) -> Optional[str]:

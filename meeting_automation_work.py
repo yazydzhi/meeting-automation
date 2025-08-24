@@ -1354,9 +1354,18 @@ def process_work_media_files(max_folders: int = 5, output_format: str = 'mp3', q
         logger.error(f"❌ Критическая ошибка медиа обработки: {e}")
         return {'processed': 0, 'synced': 0, 'cleanup': 0, 'errors': 1, 'details': []}
 
+def format_time(seconds: float) -> str:
+    """Форматирует время в формат SRT (HH:MM:SS,mmm)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    seconds = seconds % 60
+    milliseconds = int((seconds % 1) * 1000)
+    seconds = int(seconds)
+    
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
-def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', cleanup: bool = False) -> Dict[str, Any]:
-    """Обработать аудио файлы для рабочего аккаунта с Whisper."""
+def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', cleanup: bool = False, use_advanced_segmentation: bool = True, segmentation_method: str = 'energy') -> Dict[str, Any]:
+    """Обработать аудио файлы для рабочего аккаунта с Whisper и продвинутой сегментацией."""
     try:
         logger.info("🎤 Начинаю обработку аудио файлов для рабочего аккаунта...")
         
@@ -1376,6 +1385,19 @@ def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', 
         try:
             audio_processor = AudioProcessor('env.work')
             logger.info("✅ Аудио процессор инициализирован")
+            
+            # Проверяем доступность продвинутой сегментации
+            if use_advanced_segmentation:
+                try:
+                    from advanced_segmentation import AdvancedSegmentation
+                    logger.info(f"🚀 Продвинутая сегментация доступна - используем метод: {segmentation_method}")
+                except ImportError:
+                    logger.warning("⚠️ Продвинутая сегментация недоступна - используем стандартный метод")
+                    use_advanced_segmentation = False
+                    segmentation_method = 'standard'
+            else:
+                segmentation_method = 'standard'
+                
         except Exception as e:
             logger.error(f"❌ Ошибка инициализации аудио процессора: {e}")
             return {'processed': 0, 'transcribed': 0, 'errors': 1, 'details': []}
@@ -1393,7 +1415,10 @@ def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', 
                 
                 # Получаем файлы в папке
                 folder_files = drive_provider.list_files(folder.file_id)
-                audio_files = [f for f in folder_files if 'audio' in f.mime_type or f.name.endswith(('.mp3', '.wav', '.m4a'))]
+                audio_files = [f for f in folder_files if (
+                    'audio' in f.mime_type or 
+                    f.name.lower().endswith(('.mp3', '.wav', '.m4a', '.aac', '.flac', '.ogg'))
+                )]
                 
                 if audio_files:
                     logger.info(f"🎤 Найдено аудио файлов: {len(audio_files)}")
@@ -1423,14 +1448,54 @@ def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', 
                                 folder_processed += 1
                                 continue
                             
-                            # Обрабатываем аудио с Whisper
-                            logger.info(f"🎤 Транскрипция {audio_file.name}...")
-                            result = audio_processor.process_audio_file(str(local_audio_path), output_format)
+                            # Обрабатываем аудио с Whisper и продвинутой сегментацией
+                            logger.info(f"🎤 Транскрипция {audio_file.name} с методом: {segmentation_method}...")
                             
-                            if result and result.get('transcription'):
+                            if use_advanced_segmentation and segmentation_method in ['energy', 'adaptive', 'intonation', 'emotion']:
+                                # Используем продвинутую сегментацию
+                                result = audio_processor.process_audio_file_with_advanced_segmentation(
+                                    str(local_audio_path), 
+                                    segmentation_method
+                                )
+                                logger.info(f"⚡ Использована {segmentation_method} сегментация")
+                            else:
+                                # Используем стандартный метод
+                                result = audio_processor.process_audio_file(str(local_audio_path), output_format)
+                                logger.info(f"📝 Использован стандартный метод")
+                            
+                            if result and result.get('raw_transcriptions'):
                                 folder_processed += 1
                                 folder_transcribed += 1
-                                logger.info(f"✅ Транскрипция завершена: {len(result['transcription'])} участников")
+                                
+                                # Сохраняем результат в нужном формате
+                                if output_format == 'json':
+                                    with open(transcript_path, 'w', encoding='utf-8') as f:
+                                        import json
+                                        json.dump(result, f, ensure_ascii=False, indent=2)
+                                elif output_format == 'txt':
+                                    with open(transcript_path, 'w', encoding='utf-8') as f:
+                                        f.write(f"ТРАНСКРИПЦИЯ: {audio_file.name}\n")
+                                        f.write(f"Время обработки: {result.get('processed_at', '')}\n")
+                                        f.write(f"Сегментов: {result.get('total_segments', 0)}\n")
+                                        f.write(f"Спикеров: {len(result.get('speakers', {}))}\n")
+                                        f.write("-" * 50 + "\n\n")
+                                        
+                                        for trans in result.get('raw_transcriptions', []):
+                                            f.write(f"[{trans.get('start_time', 0)}ms - {trans.get('end_time', 0)}ms] ")
+                                            f.write(f"Сегмент {trans.get('segment', '?')}\n")
+                                            f.write(f"{trans.get('text', '')}\n\n")
+                                elif output_format == 'srt':
+                                    with open(transcript_path, 'w', encoding='utf-8') as f:
+                                        for i, trans in enumerate(result.get('raw_transcriptions', []), 1):
+                                            start_time_s = trans.get('start_time', 0) / 1000
+                                            end_time_s = trans.get('end_time', 0) / 1000
+                                            f.write(f"{i}\n")
+                                            f.write(f"{format_time(start_time_s)} --> {format_time(end_time_s)}\n")
+                                            f.write(f"{trans.get('text', '')}\n\n")
+                                
+                                logger.info(f"✅ Транскрипция завершена: {len(result.get('raw_transcriptions', []))} сегментов, {len(result.get('speakers', {}))} участников")
+                                logger.info(f"💾 Результат сохранен: {transcript_path}")
+                                
                             else:
                                 logger.warning(f"⚠️ Транскрипция не удалась: {audio_file.name}")
                                 
@@ -1446,7 +1511,8 @@ def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', 
                         'files_found': len(audio_files),
                         'files_processed': folder_processed,
                         'files_transcribed': folder_transcribed,
-                        'processing_time': processing_time
+                        'processing_time': processing_time,
+                        'segmentation_method': segmentation_method
                     })
                     
                     total_processed += folder_processed
@@ -1636,6 +1702,10 @@ def main():
     # Параметры для команды audio
     parser.add_argument('--output', choices=['json', 'txt', 'srt'], default='json',
                        help='Формат вывода транскрипта (по умолчанию: json)')
+    parser.add_argument('--segmentation', choices=['standard', 'energy', 'adaptive'], default='energy',
+                       help='Метод сегментации (по умолчанию: energy)')
+    parser.add_argument('--no-advanced', action='store_true',
+                       help='Отключить продвинутую сегментацию')
     
     # Параметры для команды watch
     parser.add_argument('--interval', type=int, default=300,
@@ -1674,10 +1744,17 @@ def main():
         
     elif args.command == 'audio':
         # Обрабатываем аудио файлы
+        use_advanced = not args.no_advanced
+        segmentation_method = args.segmentation if use_advanced else 'standard'
+        
+        logger.info(f"🎤 Запуск обработки аудио с сегментацией: {segmentation_method}")
+        
         audio_stats = process_work_audio_files(
             max_folders=args.folders,
             output_format=args.output,
-            cleanup=args.cleanup
+            cleanup=args.cleanup,
+            use_advanced_segmentation=use_advanced,
+            segmentation_method=segmentation_method
         )
         
         # Создаем отчет

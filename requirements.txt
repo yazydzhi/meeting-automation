@@ -22,6 +22,9 @@ numpy==2.2.6
 scipy==1.16.1
 scikit-learn==1.7.1
 
+# Визуализация
+matplotlib==3.10.5
+
 # Google API
 google-api-python-client==2.179.0
 google-auth==2.40.3
