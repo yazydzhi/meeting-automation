@@ -78,7 +78,32 @@ def init_all_processing_status():
                             )
                         else:
                             print(f"      ❌ Аудио файл не найден - файл частично обработан")
+                            # Отмечаем этап как неудачный, чтобы система знала, что нужно повторить
+                            status.mark_file_failed(
+                                video_file.name,
+                                'audio_extraction',
+                                'Аудио файл не найден - возможно, исходное видео не содержит аудио'
+                            )
                             
+                        # Проверяем наличие транскрипции
+                        transcript_files = list(subfolder.glob("*.txt")) + list(subfolder.glob("*.md")) + list(subfolder.glob("*.csv"))
+                        transcript_processed = any('transcript' in f.name.lower() or 'transcription' in f.name.lower() for f in transcript_files)
+                        
+                        if transcript_processed:
+                            print(f"      ✅ Транскрипция найдена")
+                            status.mark_file_processed(
+                                video_file.name, 
+                                'transcription',
+                                [str(f) for f in transcript_files if 'transcript' in f.name.lower() or 'transcription' in f.name.lower()]
+                            )
+                        else:
+                            print(f"      ❌ Транскрипция не найдена")
+                            status.mark_file_failed(
+                                video_file.name,
+                                'transcription',
+                                'Файлы транскрипции не найдены'
+                            )
+                        
                         # Принудительно обновляем статус файла
                         status.update_file_status(video_file.name)
                         
@@ -87,7 +112,7 @@ def init_all_processing_status():
                         if current_status:
                             print(f"      📊 Итоговый статус: {current_status['status']}")
                             
-                        if video_processed and audio_processed:
+                        if video_processed and audio_processed and transcript_processed:
                             print(f"      ✅ Файл полностью обработан")
                         elif video_processed:
                             print(f"      🔄 Файл частично обработан (только видео)")
