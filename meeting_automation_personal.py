@@ -396,10 +396,15 @@ def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
                 logger.info(f"🔄 Обрабатываю папку: {folder_name}")
                 
                 # Инициализируем отслеживание статуса для папки
-                folder_path = drive_provider.get_local_path(folder.file_id) if hasattr(drive_provider, 'get_local_path') else None
-                if folder_path:
-                    processing_status = ProcessingStatus(folder_path)
-                    logger.info(f"📊 Отслеживание статуса инициализировано для папки: {folder_path}")
+                # Для LocalDriveProvider используем root_path + folder.file_id
+                if hasattr(drive_provider, 'root_path'):
+                    folder_path = Path(drive_provider.root_path) / folder.file_id
+                    if folder_path.exists():
+                        processing_status = ProcessingStatus(str(folder_path))
+                        logger.info(f"📊 Отслеживание статуса инициализировано для папки: {folder_path}")
+                    else:
+                        processing_status = None
+                        logger.warning(f"⚠️ Папка не существует: {folder_path}")
                 else:
                     processing_status = None
                     logger.warning(f"⚠️ Не удалось получить локальный путь для папки: {folder_name}")
