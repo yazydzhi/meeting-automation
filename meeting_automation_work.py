@@ -1981,8 +1981,57 @@ def analyze_transcript_and_create_notion_page(
             json.dump(notion_page_data, f, ensure_ascii=False, indent=2)
         logger.info(f"💾 Данные для Notion сохранены: {notion_data_file}")
         
-        # TODO: Здесь будет интеграция с Notion API для создания страницы
-        logger.info("📋 Данные готовы для создания страницы в Notion")
+        # Интеграция с Notion API для добавления контента на существующую страницу
+        logger.info("📋 Данные готовы для добавления на страницу в Notion")
+        
+        # Ищем существующую страницу
+        from src.notion_api import NotionAPI
+        config_manager = ConfigManager('env.work')
+        
+        notion_token = config_manager.config.get('notion', {}).get('notion_token') or os.getenv('NOTION_TOKEN')
+        database_id = config_manager.config.get('notion', {}).get('database_id') or os.getenv('NOTION_DATABASE_ID')
+        
+        if notion_token and database_id:
+            notion_api = NotionAPI(notion_token, database_id)
+            
+            # Ищем страницу по названию
+            page_data = notion_api.search_page_by_title(meeting_title or "Live-интервью с новым PRD Денисом Кузнецовым")
+            
+            if page_data:
+                page_id = page_data.get('id')
+                logger.info(f"✅ Найдена существующая страница: {page_id}")
+                
+                # Добавляем контент на страницу
+                if notion_api.add_content_to_page(page_id, analysis_result):
+                    logger.info("✅ Контент успешно добавлен на страницу в Notion")
+                    
+                    # Обновляем свойства страницы (временно отключено)
+                    # page_properties = {
+                    #     "Status": {
+                    #         "select": {
+                    #             "name": "Completed"
+                    #         }
+                    #     }
+                    # }
+                    # 
+                    # if notion_api.update_page_properties(page_id, page_properties):
+                    #     logger.info("✅ Свойства страницы обновлены")
+                    
+                    return {
+                        'success': True,
+                        'analysis_file': analysis_file,
+                        'notion_data_file': notion_data_file,
+                        'analysis_result': analysis_result,
+                        'notion_page_data': notion_page_data,
+                        'notion_page_id': page_id,
+                        'content_added': True
+                    }
+                else:
+                    logger.error("❌ Не удалось добавить контент на страницу")
+            else:
+                logger.warning("⚠️ Страница не найдена, создайте её вручную в Notion")
+        else:
+            logger.warning("⚠️ Не настроены переменные Notion API")
         
         return {
             'success': True,

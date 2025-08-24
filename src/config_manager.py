@@ -114,8 +114,17 @@ class ConfigManager:
             'analysis_max_tokens': int(os.getenv('OPENAI_ANALYSIS_MAX_TOKENS', '4000'))
         }
         
+        # Настройки Notion
+        self.config['notion'] = {
+            'notion_token': os.getenv('NOTION_TOKEN', ''),
+            'database_id': os.getenv('NOTION_DATABASE_ID', ''),
+            'parent_page_id': os.getenv('NOTION_PARENT_PAGE_ID', ''),
+            'db_title': os.getenv('NOTION_DB_TITLE', '')
+        }
+        
         logger.info(f"🔧 Настройки Whisper: {self.config['whisper']}")
         logger.info(f"🔧 Настройки OpenAI: {self.config['openai']}")
+        logger.info(f"🔧 Настройки Notion: {self.config['notion']}")
         logger.info("Конфигурация загружена")
     
     def get_calendar_config(self) -> Dict[str, Any]:
