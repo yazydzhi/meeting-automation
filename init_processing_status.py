@@ -60,6 +60,7 @@ def init_all_processing_status():
                         video_processed = compressed_video.exists()
                         audio_processed = compressed_audio.exists()
                         
+                        # Сначала добавляем все этапы
                         if video_processed:
                             print(f"      ✅ Сжатое видео уже существует: {compressed_video.name}")
                             status.mark_file_processed(
@@ -78,7 +79,14 @@ def init_all_processing_status():
                         else:
                             print(f"      ❌ Аудио файл не найден - файл частично обработан")
                             
-                        # Проверяем итоговый статус
+                        # Принудительно обновляем статус файла
+                        status.update_file_status(video_file.name)
+                        
+                        # Теперь проверяем итоговый статус
+                        current_status = status.get_file_status(video_file.name)
+                        if current_status:
+                            print(f"      📊 Итоговый статус: {current_status['status']}")
+                            
                         if video_processed and audio_processed:
                             print(f"      ✅ Файл полностью обработан")
                         elif video_processed:

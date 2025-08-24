@@ -121,17 +121,7 @@ class ProcessingStatus:
         }
         file_info['processing_steps'].append(step_info)
         
-        # Проверяем, все ли этапы завершены успешно
-        all_steps_success = all(
-            step.get('status') == 'success' 
-            for step in file_info.get('processing_steps', [])
-        )
-        
-        # Устанавливаем статус файла только если все этапы успешны
-        if all_steps_success:
-            file_info['status'] = 'processed'
-        else:
-            file_info['status'] = 'partially_processed'
+        # НЕ устанавливаем статус автоматически - это будет сделано позже через update_file_status
         
         # Добавляем в историю
         history_entry = {
@@ -149,6 +139,27 @@ class ProcessingStatus:
             print(f"✅ Файл {file_name} полностью обработан (этап: {step})")
         else:
             print(f"🔄 Файл {file_name} частично обработан (этап: {step})")
+    
+    def update_file_status(self, file_name: str):
+        """Принудительно обновляет статус файла на основе всех этапов."""
+        if file_name not in self.status_data['files']:
+            return
+        
+        file_info = self.status_data['files'][file_name]
+        
+        # Проверяем, все ли этапы завершены успешно
+        all_steps_success = all(
+            step.get('status') == 'success' 
+            for step in file_info.get('processing_steps', [])
+        )
+        
+        # Устанавливаем статус файла
+        if all_steps_success:
+            file_info['status'] = 'processed'
+        else:
+            file_info['status'] = 'partially_processed'
+        
+        self._save_status()
     
     def mark_file_failed(self, file_name: str, step: str, error: str):
         """Отмечает файл как неудачно обработанный."""
