@@ -63,11 +63,15 @@ def init_all_processing_status():
                         # Сначала добавляем все этапы
                         if video_processed:
                             print(f"      ✅ Сжатое видео уже существует: {compressed_video.name}")
-                            status.mark_file_processed(
-                                video_file.name, 
-                                'video_compression',
-                                [str(compressed_video)]
-                            )
+                            # Проверяем, не добавлен ли уже этот этап
+                            if not any(step.get('step') == 'video_compression' for step in status.status_data['files'][video_file.name].get('processing_steps', [])):
+                                status.mark_file_processed(
+                                    video_file.name, 
+                                    'video_compression',
+                                    [str(compressed_video)]
+                                )
+                            else:
+                                print(f"      ⏭️ Этап video_compression уже существует")
                         
                         if audio_processed:
                             print(f"      ✅ Аудио файл уже существует: {compressed_audio.name}")
