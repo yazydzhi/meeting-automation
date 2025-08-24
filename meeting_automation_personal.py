@@ -26,6 +26,7 @@ try:
     from media_processor import get_media_processor
     from drive_sync import get_drive_sync
     from audio_processor import AudioProcessor
+    from processing_status import ProcessingStatus
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
@@ -394,10 +395,33 @@ def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
                 folder_name = folder.name
                 logger.info(f"🔄 Обрабатываю папку: {folder_name}")
                 
+                # Инициализируем отслеживание статуса для папки
+                folder_path = drive_provider.get_local_path(folder.file_id) if hasattr(drive_provider, 'get_local_path') else None
+                if folder_path:
+                    processing_status = ProcessingStatus(folder_path)
+                    logger.info(f"📊 Отслеживание статуса инициализировано для папки: {folder_path}")
+                else:
+                    processing_status = None
+                    logger.warning(f"⚠️ Не удалось получить локальный путь для папки: {folder_name}")
+                
                 # Получаем файлы в папке
                 folder_files = drive_provider.list_files(folder.file_id)
+                
                 # Фильтруем видео файлы, исключая уже обработанные
                 video_files = [f for f in folder_files if 'video' in f.mime_type and 'compressed' not in f.name.lower()]
+                
+                # Если есть отслеживание статуса, фильтруем по нему
+                if processing_status:
+                    original_video_files = video_files.copy()
+                    video_files = []
+                    for video_file in original_video_files:
+                        if not processing_status.is_file_processed(video_file.name, 'video_compression'):
+                            video_files.append(video_file)
+                            # Добавляем файл в отслеживание, если его там нет
+                            if video_file.name not in processing_status.status_data['files']:
+                                processing_status.add_file(video_file.local_path, 'video')
+                        else:
+                            logger.info(f"⏭️ Файл уже обработан (по статусу): {video_file.name}")
                 
                 if video_files:
                     logger.info(f"🎥 Найдено видео файлов: {len(video_files)}")
@@ -487,8 +511,22 @@ def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
                                     
                                     logger.info(f"✅ Видео сжато: {video_output_name}")
                                     logger.info(f"📊 Размер: {original_size / (1024**3):.1f} ГБ → {compressed_size / (1024**3):.1f} ГБ (сжатие в {compression_ratio:.1f} раз)")
+                                    
+                                    # Отмечаем файл как обработанный
+                                    if processing_status:
+                                        processing_status.mark_file_processed(
+                                            video_file.name, 
+                                            'video_compression',
+                                            [str(video_output_path)]
+                                        )
                                 else:
                                     logger.error(f"❌ Ошибка сжатия видео: {video_result.stderr}")
+                                    if processing_status:
+                                        processing_status.mark_file_failed(
+                                            video_file.name,
+                                            'video_compression',
+                                            video_result.stderr
+                                        )
                                     video_output_path = None
                             else:
                                 logger.info("⏭️ Сжатие видео отключено")
@@ -512,13 +550,33 @@ def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
                                 logger.info(f"✅ Аудио создано: {audio_output_name}")
                                 folder_processed += 1
                                 total_processed += 1
+                                
+                                # Отмечаем файл как обработанный на этапе аудио
+                                if processing_status:
+                                    processing_status.mark_file_processed(
+                                        video_file.name,
+                                        'audio_extraction',
+                                        [str(audio_output_path)]
+                                    )
                             else:
                                 logger.error(f"❌ Ошибка конвертации в аудио: {audio_result.stderr}")
+                                
+                                # Отмечаем файл как неудачно обработанный на этапе аудио
+                                if processing_status:
+                                    processing_status.mark_file_failed(
+                                        video_file.name,
+                                        'audio_extraction',
+                                        audio_result.stderr
+                                    )
                                 
                         except Exception as e:
                             logger.error(f"❌ Ошибка обработки {video_file.name}: {e}")
                     
                     processing_time = time.time() - start_time
+                    
+                    # Выводим сводку по статусу обработки
+                    if processing_status:
+                        processing_status.print_summary()
                     
                     media_details.append({
                         "folder": folder_name,
