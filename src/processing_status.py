@@ -86,15 +86,42 @@ class ProcessingStatus:
             return
         
         file_info = self.status_data['files'][file_name]
-        file_info['status'] = 'processed'
         
         # Добавляем информацию об этапе обработки
         step_info = {
             'step': step,
             'timestamp': datetime.now().isoformat(),
-            'output_files': output_files or []
+            'output_files': output_files or [],
+            'status': 'success'
         }
         file_info['processing_steps'].append(step_info)
+        
+        # Проверяем, все ли этапы завершены успешно
+        all_steps_success = all(
+            step.get('status') == 'success' 
+            for step in file_info.get('processing_steps', [])
+        )
+        
+        # Добавляем информацию об этапе обработки
+        step_info = {
+            'step': step,
+            'timestamp': datetime.now().isoformat(),
+            'output_files': output_files or [],
+            'status': 'success'
+        }
+        file_info['processing_steps'].append(step_info)
+        
+        # Проверяем, все ли этапы завершены успешно
+        all_steps_success = all(
+            step.get('status') == 'success' 
+            for step in file_info.get('processing_steps', [])
+        )
+        
+        # Устанавливаем статус файла только если все этапы успешны
+        if all_steps_success:
+            file_info['status'] = 'processed'
+        else:
+            file_info['status'] = 'partially_processed'
         
         # Добавляем в историю
         history_entry = {
@@ -106,7 +133,12 @@ class ProcessingStatus:
         self.status_data['processing_history'].append(history_entry)
         
         self._save_status()
-        print(f"✅ Файл {file_name} отмечен как обработанный (этап: {step})")
+        
+        # Выводим сообщение о статусе
+        if file_info['status'] == 'processed':
+            print(f"✅ Файл {file_name} полностью обработан (этап: {step})")
+        else:
+            print(f"🔄 Файл {file_name} частично обработан (этап: {step})")
     
     def mark_file_failed(self, file_name: str, step: str, error: str):
         """Отмечает файл как неудачно обработанный."""
@@ -115,7 +147,6 @@ class ProcessingStatus:
             return
         
         file_info = self.status_data['files'][file_name]
-        file_info['status'] = 'failed'
         
         # Добавляем информацию об ошибке
         step_info = {
@@ -125,6 +156,18 @@ class ProcessingStatus:
             'status': 'failed'
         }
         file_info['processing_steps'].append(step_info)
+        
+        # Проверяем, есть ли успешные этапы
+        successful_steps = [
+            step for step in file_info.get('processing_steps', [])
+            if step.get('status') == 'success'
+        ]
+        
+        # Если есть успешные этапы, но текущий провалился - частично обработан
+        if successful_steps:
+            file_info['status'] = 'partially_processed'
+        else:
+            file_info['status'] = 'failed'
         
         # Добавляем в историю
         history_entry = {
@@ -148,11 +191,11 @@ class ProcessingStatus:
         if step:
             # Проверяем конкретный этап
             for step_info in file_info.get('processing_steps', []):
-                if step_info.get('step') == step and step_info.get('status') != 'failed':
+                if step_info.get('step') == step and step_info.get('status') == 'success':
                     return True
             return False
         else:
-            # Проверяем общий статус
+            # Проверяем общий статус - только полностью обработанные файлы
             return file_info.get('status') == 'processed'
     
     def get_pending_files(self, file_type: str = None) -> List[str]:
@@ -201,13 +244,15 @@ class ProcessingStatus:
         total_files = len(self.status_data['files'])
         pending_files = len(self.get_pending_files())
         processed_files = len(self.get_processed_files())
-        failed_files = total_files - pending_files - processed_files
+        partially_processed_files = len([f for f in self.status_data['files'].values() if f.get('status') == 'partially_processed'])
+        failed_files = total_files - pending_files - processed_files - partially_processed_files
         
         return {
             'folder_path': str(self.folder_path),
             'total_files': total_files,
             'pending_files': pending_files,
             'processed_files': processed_files,
+            'partially_processed_files': partially_processed_files,
             'failed_files': failed_files,
             'last_updated': self.status_data.get('last_updated'),
             'created_at': self.status_data.get('created_at')
@@ -219,7 +264,8 @@ class ProcessingStatus:
         print(f"\n📊 СВОДКА ПО ПАПКЕ: {summary['folder_path']}")
         print(f"📁 Всего файлов: {summary['total_files']}")
         print(f"⏳ Ожидают обработки: {summary['pending_files']}")
-        print(f"✅ Обработано: {summary['processed_files']}")
+        print(f"✅ Полностью обработано: {summary['processed_files']}")
+        print(f"🔄 Частично обработано: {summary['partially_processed_files']}")
         print(f"❌ Ошибки: {summary['failed_files']}")
         print(f"🕒 Последнее обновление: {summary['last_updated']}")
         
