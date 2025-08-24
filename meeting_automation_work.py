@@ -11,6 +11,7 @@ import argparse
 import logging
 import time
 import subprocess
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Any, List
@@ -1459,9 +1460,9 @@ def process_work_audio_files(max_folders: int = 5, output_format: str = 'json', 
                                 )
                                 logger.info(f"⚡ Использована {segmentation_method} сегментация")
                             else:
-                                # Используем стандартный метод
-                                result = audio_processor.process_audio_file(str(local_audio_path), output_format)
-                                logger.info(f"📝 Использован стандартный метод")
+                                # Используем метод без сегментации
+                                result = audio_processor.process_audio_file_full(str(local_audio_path), output_format)
+                                logger.info(f"📝 Использован метод без сегментации")
                             
                             if result and result.get('raw_transcriptions'):
                                 folder_processed += 1
@@ -1666,7 +1667,7 @@ def send_work_telegram_notification(report: str):
 def main():
     """Основная функция."""
     parser = argparse.ArgumentParser(description='Автоматизация встреч для рабочего аккаунта')
-    parser.add_argument('command', choices=['prepare', 'media', 'audio', 'test', 'watch'], 
+    parser.add_argument('command', choices=['prepare', 'media', 'audio', 'test', 'watch', 'analyze'], 
                        help='Команда для выполнения')
     
     # Общие параметры
@@ -1710,6 +1711,14 @@ def main():
     # Параметры для команды watch
     parser.add_argument('--interval', type=int, default=300,
                        help='Интервал проверки в секундах (по умолчанию: 300)')
+    
+    # Параметры для команды analyze
+    parser.add_argument('--transcript', type=str, required=False,
+                       help='Путь к файлу транскрипции для анализа')
+    parser.add_argument('--title', type=str, default='',
+                       help='Название встречи для анализа')
+    parser.add_argument('--date', type=str, default='',
+                       help='Дата встречи для анализа')
     
     args = parser.parse_args()
     
@@ -1847,9 +1856,148 @@ def main():
         #     process_work_calendar_events(days=args.days)
         #     time.sleep(args.interval)
         
+    elif args.command == 'analyze':
+        # Анализируем транскрипцию и создаем страницу в Notion
+        if not args.transcript:
+            logger.error("❌ Необходимо указать путь к файлу транскрипции (--transcript)")
+            sys.exit(1)
+        
+        if not os.path.exists(args.transcript):
+            logger.error(f"❌ Файл транскрипции не найден: {args.transcript}")
+            sys.exit(1)
+        
+        logger.info(f"🔍 Анализ транскрипции: {args.transcript}")
+        logger.info(f"📋 Название встречи: {args.title or 'Не указано'}")
+        logger.info(f"📅 Дата встречи: {args.date or 'Не указана'}")
+        
+        # Анализируем транскрипцию
+        analysis_result = analyze_transcript_and_create_notion_page(
+            args.transcript,
+            args.title,
+            args.date
+        )
+        
+        if analysis_result['success']:
+            logger.info("✅ Анализ транскрипции завершен успешно")
+            logger.info(f"📊 Файл анализа: {analysis_result['analysis_file']}")
+            logger.info(f"📋 Данные для Notion: {analysis_result['notion_data_file']}")
+            
+            # Создаем отчет
+            summary = analysis_result['analysis_result'].get('meeting_summary', {})
+            report = f"""
+🔍 АНАЛИЗ ТРАНСКРИПЦИИ ЗАВЕРШЕН
+
+📋 Встреча: {summary.get('title', 'Не указано')}
+🎯 Тема: {summary.get('main_topic', 'Не указано')}
+✅ Решения: {len(summary.get('key_decisions', []))}
+📋 Действия: {len(summary.get('action_items', []))}
+💬 Темы: {len(analysis_result['analysis_result'].get('topics_discussed', []))}
+⏰ Сроки: {len(analysis_result['analysis_result'].get('deadlines', []))}
+
+💾 Файлы созданы:
+   - Анализ: {os.path.basename(analysis_result['analysis_file'])}
+   - Данные для Notion: {os.path.basename(analysis_result['notion_data_file'])}
+
+📋 Страница готова для создания в Notion
+"""
+            print(report)
+            
+            # Отправляем уведомление в Telegram
+            send_work_telegram_notification(report)
+            logger.info("📱 Уведомление отправлено в Telegram")
+            
+        else:
+            logger.error(f"❌ Ошибка анализа: {analysis_result.get('error', 'Неизвестная ошибка')}")
+            sys.exit(1)
+        
     else:
         logger.error(f"❌ Неизвестная команда: {args.command}")
         sys.exit(1)
+
+def analyze_transcript_and_create_notion_page(
+    transcript_file_path: str,
+    meeting_title: str = "",
+    meeting_date: str = ""
+) -> Dict[str, Any]:
+    """
+    Анализирует транскрипцию через OpenAI и создает страницу в Notion
+    
+    Args:
+        transcript_file_path: Путь к файлу транскрипции
+        meeting_title: Название встречи
+        meeting_date: Дата встречи
+        
+    Returns:
+        Словарь с результатами анализа и создания страницы
+    """
+    try:
+        logger.info(f"🔍 Анализирую транскрипцию: {transcript_file_path}")
+        
+        # Читаем транскрипцию
+        with open(transcript_file_path, 'r', encoding='utf-8') as f:
+            transcript_text = f.read()
+        
+        logger.info(f"📝 Прочитана транскрипция: {len(transcript_text)} символов")
+        
+        # Загружаем конфигурацию
+        config_manager = ConfigManager('env.work')
+        openai_config = config_manager.config.get('openai', {})
+        
+        api_key = openai_config.get('api_key')
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY не найден в конфигурации")
+        
+        model = openai_config.get('analysis_model', 'gpt-4o-mini')
+        
+        # Создаем анализатор
+        from src.transcript_analyzer import TranscriptAnalyzer
+        analyzer = TranscriptAnalyzer(api_key, model)
+        
+        # Анализируем транскрипцию
+        logger.info("🔍 Начинаю анализ через OpenAI...")
+        analysis_result = analyzer.analyze_meeting_transcript(
+            transcript_text,
+            meeting_title,
+            meeting_date
+        )
+        
+        logger.info("✅ Анализ завершен успешно")
+        
+        # Сохраняем результат анализа
+        analysis_file = transcript_file_path.replace('.txt', '_analysis.json')
+        if analyzer.save_analysis_to_file(analysis_result, analysis_file):
+            logger.info(f"💾 Результат анализа сохранен: {analysis_file}")
+        
+        # Создаем данные для Notion
+        logger.info("📝 Создаю данные для страницы Notion...")
+        notion_page_data = analyzer.create_notion_page_data(analysis_result)
+        
+        if not notion_page_data:
+            raise ValueError("Не удалось создать данные для Notion")
+        
+        # Сохраняем данные для Notion
+        notion_data_file = transcript_file_path.replace('.txt', '_notion_data.json')
+        with open(notion_data_file, 'w', encoding='utf-8') as f:
+            json.dump(notion_page_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"💾 Данные для Notion сохранены: {notion_data_file}")
+        
+        # TODO: Здесь будет интеграция с Notion API для создания страницы
+        logger.info("📋 Данные готовы для создания страницы в Notion")
+        
+        return {
+            'success': True,
+            'analysis_file': analysis_file,
+            'notion_data_file': notion_data_file,
+            'analysis_result': analysis_result,
+            'notion_page_data': notion_page_data
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка анализа транскрипции: {e}")
+        return {
+            'success': False,
+            'error': str(e)
+        }
 
 if __name__ == "__main__":
     main()

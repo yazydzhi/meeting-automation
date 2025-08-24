@@ -106,7 +106,16 @@ class ConfigManager:
             'temp_audio_root': os.getenv('TEMP_AUDIO_ROOT', 'data/temp_audio')
         }
         
+        # Настройки OpenAI для анализа
+        self.config['openai'] = {
+            'api_key': os.getenv('OPENAI_API_KEY', ''),
+            'analysis_model': os.getenv('OPENAI_ANALYSIS_MODEL', 'gpt-4o-mini'),
+            'analysis_temperature': float(os.getenv('OPENAI_ANALYSIS_TEMPERATURE', '0.3')),
+            'analysis_max_tokens': int(os.getenv('OPENAI_ANALYSIS_MAX_TOKENS', '4000'))
+        }
+        
         logger.info(f"🔧 Настройки Whisper: {self.config['whisper']}")
+        logger.info(f"🔧 Настройки OpenAI: {self.config['openai']}")
         logger.info("Конфигурация загружена")
     
     def get_calendar_config(self) -> Dict[str, Any]:
