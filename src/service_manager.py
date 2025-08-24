@@ -201,7 +201,7 @@ class MeetingAutomationService:
             
             # Проверяем, нужно ли обрабатывать медиа
             current_time = time.time()
-            if hasattr(self, 'last_media_check') and current_time - self.last_media_check < self.media_check_interval:
+            if hasattr(self, 'last_media_check') and self.last_media_check is not None and current_time - self.last_media_check < self.media_check_interval:
                 self.logger.info("⏰ Медиа обработка еще не требуется")
                 return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
             
@@ -213,6 +213,9 @@ class MeetingAutomationService:
             
             if result.returncode == 0:
                 self.logger.info("✅ Медиа обработка завершена успешно")
+                # Обновляем время последней проверки медиа
+                self.last_media_check = current_time
+                
                 # Парсим результат для получения статистики
                 if "📄 Файлов синхронизировано:" in result.stdout:
                     # Извлекаем количество обработанных файлов
@@ -228,13 +231,19 @@ class MeetingAutomationService:
                     return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
             else:
                 self.logger.error(f"❌ Ошибка медиа обработки: {result.stderr}")
+                # Обновляем время последней проверки медиа даже при ошибке
+                self.last_media_check = current_time
                 return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
                 
         except subprocess.TimeoutExpired:
             self.logger.error("⏰ Медиа обработка превысила время выполнения")
+            # Обновляем время последней проверки медиа даже при ошибке
+            self.last_media_check = current_time
             return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
         except Exception as e:
             self.logger.error(f"❌ Ошибка медиа обработки: {e}")
+            # Обновляем время последней проверки медиа даже при ошибке
+            self.last_media_check = current_time
             return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
     
     def send_telegram_notification(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]):
