@@ -10,9 +10,9 @@
         <string>/Users/azg/repository/meeting_automation/venv/bin/python</string>
         <string>/Users/azg/repository/meeting_automation/src/service_manager.py</string>
         <string>--interval</string>
-        <string>300</string>
+        <string>60</string>
         <string>--media-interval</string>
-        <string>1800</string>
+        <string>60</string>
     </array>
     
     <key>WorkingDirectory</key>
@@ -46,6 +46,6 @@
     <integer>10</integer>
     
     <key>StartInterval</key>
-    <integer>300</integer>
+    <integer>0</integer>
 </dict>
 </plist>
