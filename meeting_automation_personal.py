@@ -396,7 +396,8 @@ def process_personal_media_files(quality: str = 'medium') -> Dict[str, Any]:
                 
                 # Получаем файлы в папке
                 folder_files = drive_provider.list_files(folder.file_id)
-                video_files = [f for f in folder_files if 'video' in f.mime_type]
+                # Фильтруем видео файлы, исключая уже обработанные
+                video_files = [f for f in folder_files if 'video' in f.mime_type and 'compressed' not in f.name.lower()]
                 
                 if video_files:
                     logger.info(f"🎥 Найдено видео файлов: {len(video_files)}")

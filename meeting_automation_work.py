@@ -1202,7 +1202,8 @@ def process_work_media_files(max_folders: int = 5, output_format: str = 'mp3', q
                 
                 # Получаем файлы в папке
                 folder_files = drive_provider.list_files(folder.file_id)
-                video_files = [f for f in folder_files if 'video' in f.mime_type]
+                # Фильтруем видео файлы, исключая уже обработанные
+                video_files = [f for f in folder_files if 'video' in f.mime_type and 'compressed' not in f.name.lower()]
                 
                 if video_files:
                     logger.info(f"🎥 Найдено видео файлов: {len(video_files)}")

@@ -246,6 +246,13 @@ def auto_process_video_full_flow(video_path: str, meeting_title: str, meeting_da
             results['errors'].append(error_msg)
             return results
         
+        # Проверяем, не является ли файл уже обработанным
+        if 'compressed' in video_path.name.lower():
+            error_msg = f"Файл уже обработан: {video_path.name}"
+            print(f"❌ {error_msg}")
+            results['errors'].append(error_msg)
+            return results
+        
         output_dir = video_path.parent
         
         # 1. Сжимаем видео
