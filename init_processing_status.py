@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""
+Скрипт для инициализации файлов статуса обработки во всех папках.
+"""
+
+import sys
+from pathlib import Path
+
+# Добавляем src в путь
+sys.path.insert(0, 'src')
+
+from processing_status import ProcessingStatus
+
+def init_all_processing_status():
+    """Инициализируем статус обработки для всех папок."""
+    
+    # Основные папки для проверки
+    base_paths = [
+        "/Users/azg/Downloads/01 - yazydzhi@gmail.com",
+        "/Users/azg/Downloads/02 - work@company.com"
+    ]
+    
+    for base_path in base_paths:
+        base_path_obj = Path(base_path)
+        if not base_path_obj.exists():
+            print(f"⚠️ Базовая папка не найдена: {base_path}")
+            continue
+            
+        print(f"\n🔍 Проверяем папку: {base_path}")
+        
+        # Получаем все подпапки
+        try:
+            subfolders = [f for f in base_path_obj.iterdir() if f.is_dir()]
+            print(f"📁 Найдено подпапок: {len(subfolders)}")
+            
+            for subfolder in subfolders:
+                print(f"\n📂 Обрабатываем подпапку: {subfolder.name}")
+                
+                # Инициализируем статус для подпапки
+                status = ProcessingStatus(str(subfolder))
+                
+                # Проверяем, есть ли уже файлы в папке
+                video_files = list(subfolder.glob("*.mov")) + list(subfolder.glob("*.mp4")) + list(subfolder.glob("*.avi"))
+                audio_files = list(subfolder.glob("*.mp3")) + list(subfolder.glob("*.wav"))
+                
+                print(f"   🎬 Видео файлы: {len(video_files)}")
+                print(f"   🎵 Аудио файлы: {len(audio_files)}")
+                
+                # Если есть видео файлы, добавляем их в отслеживание
+                for video_file in video_files:
+                    if 'compressed' not in video_file.name.lower():
+                        print(f"   📝 Добавляем в отслеживание: {video_file.name}")
+                        status.add_file(str(video_file), 'video')
+                        
+                        # Проверяем, есть ли уже сжатые версии
+                        compressed_video = subfolder / f"{video_file.stem}_compressed.mp4"
+                        compressed_audio = subfolder / f"{video_file.stem}_compressed.mp3"
+                        
+                        if compressed_video.exists():
+                            print(f"      ✅ Сжатое видео уже существует: {compressed_video.name}")
+                            status.mark_file_processed(
+                                video_file.name, 
+                                'video_compression',
+                                [str(compressed_video)]
+                            )
+                        
+                        if compressed_audio.exists():
+                            print(f"      ✅ Аудио файл уже существует: {compressed_audio.name}")
+                            status.mark_file_processed(
+                                video_file.name, 
+                                'audio_extraction',
+                                [str(compressed_audio)]
+                            )
+                    else:
+                        print(f"   ⏭️ Пропускаем уже сжатый файл: {video_file.name}")
+                
+                # Выводим итоговую сводку
+                status.print_summary()
+                
+        except Exception as e:
+            print(f"❌ Ошибка обработки папки {base_path}: {e}")
+
+if __name__ == "__main__":
+    init_all_processing_status()
