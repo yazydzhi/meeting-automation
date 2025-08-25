@@ -17,18 +17,11 @@ import json
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    # Пытаемся импортировать из разных возможных мест
-    try:
-        from meeting_automation_personal_only import load_env_or_fail
-    except ImportError:
-        try:
-            from src.config_manager import ConfigManager
-            def load_env_or_fail():
-                config = ConfigManager()
-                return config.config
-        except ImportError:
-            print("❌ Не удалось импортировать модули проекта")
-            sys.exit(1)
+    # Импортируем ConfigManager для загрузки конфигурации
+    from src.config_manager import ConfigManager
+except ImportError as e:
+    print(f"❌ Не удалось импортировать ConfigManager: {e}")
+    sys.exit(1)
 except Exception as e:
     print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
@@ -45,7 +38,8 @@ class ServiceMonitor:
         
         # Загружаем окружение
         try:
-            self.env = load_env_or_fail()
+            config_manager = ConfigManager()
+            self.env = config_manager.config
         except Exception as e:
             print(f"❌ Ошибка загрузки окружения: {e}")
             self.env = {}
@@ -54,18 +48,28 @@ class ServiceMonitor:
         """Проверка процессов сервиса."""
         service_processes = []
         
-        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_info']):
+        for proc in psutil.process_iter(['pid', 'name', 'cmdline', 'cpu_percent', 'memory_info', 'create_time']):
             try:
                 cmdline = ' '.join(proc.info['cmdline']) if proc.info['cmdline'] else ''
                 if 'service_manager.py' in cmdline:
+                    # Получаем время создания процесса (запуска)
+                    create_time = datetime.fromtimestamp(proc.info['create_time'])
+                    uptime = datetime.now() - create_time
+                    
                     service_processes.append({
                         'pid': proc.info['pid'],
                         'cpu_percent': proc.info['cpu_percent'],
                         'memory_mb': proc.info['memory_info'].rss / 1024 / 1024,
+                        'start_time': create_time,
+                        'uptime': uptime,
                         'cmdline': cmdline
                     })
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
+        
+        # Сохраняем время запуска для использования в логах
+        if service_processes:
+            self._service_start_time = service_processes[0]['start_time']
         
         return {
             'running': len(service_processes) > 0,
@@ -90,14 +94,48 @@ class ServiceMonitor:
                 with open(latest_log, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 
-                # Анализируем логи
-                error_count = sum(1 for line in lines if 'ERROR' in line or '❌' in line)
-                warning_count = sum(1 for line in lines if 'WARNING' in line or '⚠️' in line)
-                info_count = sum(1 for line in lines if 'INFO' in line or '✅' in line)
+                # Получаем время запуска сервиса из текущего процесса
+                service_start_time = None
+                if hasattr(self, '_service_start_time'):
+                    service_start_time = self._service_start_time
+                else:
+                    # Ищем в логах последний запуск сервиса
+                    for line in reversed(lines):
+                        if '🚀 Сервис запущен' in line or 'Сервис автоматизации встреч инициализирован' in line:
+                            try:
+                                timestamp_str = line.split(' - ')[0]
+                                service_start_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
+                                break
+                            except:
+                                continue
+                    
+                    # Если не нашли, используем время создания файла
+                    if not service_start_time:
+                        service_start_time = datetime.fromtimestamp(latest_log.stat().st_ctime)
+                    
+                    # Сохраняем время запуска для использования в других функциях
+                    self._service_start_time = service_start_time
+                
+                # Фильтруем логи только с момента запуска сервиса
+                filtered_lines = []
+                for line in lines:
+                    try:
+                        timestamp_str = line.split(' - ')[0]
+                        line_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
+                        if line_time >= service_start_time:
+                            filtered_lines.append(line)
+                    except:
+                        # Если не можем распарсить время, добавляем строку
+                        filtered_lines.append(line)
+                
+                # Анализируем отфильтрованные логи
+                error_count = sum(1 for line in filtered_lines if 'ERROR' in line or '❌' in line)
+                warning_count = sum(1 for line in filtered_lines if 'WARNING' in line or '⚠️' in line)
+                info_count = sum(1 for line in filtered_lines if 'INFO' in line or '✅' in line)
                 
                 # Последняя активность
                 last_activity = None
-                for line in reversed(lines):
+                for line in reversed(filtered_lines):
                     if 'INFO' in line or 'ERROR' in line or 'WARNING' in line:
                         try:
                             timestamp_str = line.split(' - ')[0]
@@ -106,14 +144,27 @@ class ServiceMonitor:
                         except:
                             continue
                 
+                # Собираем warning и error записи для отображения
+                warning_lines = []
+                error_lines = []
+                
+                for line in filtered_lines:
+                    if 'WARNING' in line or '⚠️' in line:
+                        warning_lines.append(line.strip())
+                    elif 'ERROR' in line or '❌' in line:
+                        error_lines.append(line.strip())
+                
                 log_stats = {
                     'latest_file': latest_log.name,
-                    'total_lines': len(lines),
+                    'total_lines': len(filtered_lines),
                     'errors': error_count,
                     'warnings': warning_count,
                     'info': info_count,
                     'last_activity': last_activity,
-                    'file_size_mb': latest_log.stat().st_size / 1024 / 1024
+                    'file_size_mb': latest_log.stat().st_size / 1024 / 1024,
+                    'service_start_time': service_start_time,
+                    'warning_lines': warning_lines,
+                    'error_lines': error_lines
                 }
                 
             except Exception as e:
@@ -155,8 +206,9 @@ class ServiceMonitor:
     
     def check_telegram_connection(self) -> dict:
         """Проверка подключения к Telegram."""
-        token = self.env.get("TELEGRAM_BOT_TOKEN")
-        chat_id = self.env.get("TELEGRAM_CHAT_ID")
+        # Получаем токены из конфигурации
+        token = self.env.get("telegram", {}).get("bot_token")
+        chat_id = self.env.get("telegram", {}).get("chat_id")
         
         if not token or not chat_id:
             return {'available': False, 'error': 'Токены не настроены'}
@@ -185,14 +237,34 @@ class ServiceMonitor:
     def check_google_services(self) -> dict:
         """Проверка Google сервисов."""
         try:
-            from meeting_automation_personal_only import get_google_services
+            # Проверяем настройки Google сервисов из конфигурации
+            if not self.env:
+                return {
+                    'calendar_available': False,
+                    'drive_available': False,
+                    'status': 'not_configured',
+                    'error': 'Конфигурация не загружена'
+                }
             
-            cal_svc, drive_svc = get_google_services(self.env)
+            # Проверяем наличие настроек для личного аккаунта
+            personal_calendar = self.env.get('accounts', {}).get('personal', {}).get('calendar_provider')
+            personal_drive = self.env.get('accounts', {}).get('personal', {}).get('drive_provider')
+            
+            # Проверяем наличие настроек для рабочего аккаунта
+            work_calendar = self.env.get('accounts', {}).get('work', {}).get('calendar_provider')
+            work_drive = self.env.get('accounts', {}).get('work', {}).get('drive_provider')
+            
+            calendar_available = personal_calendar or work_calendar
+            drive_available = personal_drive or work_drive
             
             return {
-                'calendar_available': cal_svc is not None,
-                'drive_available': drive_svc is not None,
-                'status': 'available'
+                'calendar_available': bool(calendar_available),
+                'drive_available': bool(drive_available),
+                'status': 'configured',
+                'personal_calendar': personal_calendar,
+                'personal_drive': personal_drive,
+                'work_calendar': work_calendar,
+                'work_drive': work_drive
             }
             
         except Exception as e:
@@ -222,7 +294,13 @@ class ServiceMonitor:
         if process_info['running']:
             report += f"✅ Сервис запущен ({process_info['count']} процессов)\n"
             for proc in process_info['processes']:
-                report += f"  • PID {proc['pid']}: CPU {proc['cpu_percent']:.1f}%, RAM {proc['memory_mb']:.1f}MB\n"
+                start_time_str = proc['start_time'].strftime("%H:%M:%S")
+                uptime_hours = proc['uptime'].total_seconds() // 3600
+                uptime_minutes = (proc['uptime'].total_seconds() % 3600) // 60
+                uptime_str = f"{int(uptime_hours)}ч {int(uptime_minutes)}м"
+                
+                report += f"  • PID {proc['pid']}: запущен в {start_time_str} (работает {uptime_str})\n"
+                report += f"    CPU {proc['cpu_percent']:.1f}%, RAM {proc['memory_mb']:.1f}MB\n"
         else:
             report += "❌ Сервис не запущен\n"
         report += "\n"
@@ -243,6 +321,14 @@ class ServiceMonitor:
                     report += f"🕐 Последняя активность: {time_diff.seconds // 60} мин назад\n"
                 else:
                     report += f"🕐 Последняя активность: {time_diff.seconds // 3600} ч назад\n"
+            
+            # Добавляем информацию о времени запуска сервиса
+            if 'service_start_time' in log_info and log_info['service_start_time']:
+                service_uptime = datetime.now() - log_info['service_start_time']
+                uptime_hours = service_uptime.total_seconds() // 3600
+                uptime_minutes = (service_uptime.total_seconds() % 3600) // 60
+                uptime_str = f"{int(uptime_hours)}ч {int(uptime_minutes)}м"
+                report += f"🕐 Время запуска: {log_info['service_start_time'].strftime('%H:%M:%S')} (работает {uptime_str})\n"
         else:
             report += f"❌ Ошибка: {log_info['error']}\n"
         report += "\n"
@@ -266,11 +352,39 @@ class ServiceMonitor:
         
         # Google сервисы
         report += "🔗 *GOOGLE СЕРВИСЫ:*\n"
-        if google_info['status'] == 'available':
+        if google_info['status'] == 'configured':
             report += f"📅 Календарь: {'✅' if google_info['calendar_available'] else '❌'}\n"
             report += f"💾 Drive: {'✅' if google_info['drive_available'] else '❌'}\n"
+            if google_info.get('personal_calendar'):
+                report += f"   👤 Личный: {google_info['personal_calendar']}\n"
+            if google_info.get('work_calendar'):
+                report += f"   🏢 Рабочий: {google_info['work_calendar']}\n"
+        elif google_info['status'] == 'not_configured':
+            report += "❌ Не настроены\n"
         else:
-            report += f"❌ Ошибка: {google_info['error']}\n"
+            error_msg = google_info.get('error', 'Неизвестная ошибка')
+            report += f"❌ Ошибка: {error_msg}\n"
+        
+        # Добавляем warning и error записи
+        if 'warning_lines' in log_info and log_info['warning_lines']:
+            report += "\n⚠️ *ПРЕДУПРЕЖДЕНИЯ:*\n"
+            for warning in log_info['warning_lines'][-3:]:  # Показываем последние 3
+                # Убираем timestamp для краткости
+                if ' - ' in warning:
+                    warning_content = warning.split(' - ', 1)[1]
+                    report += f"   {warning_content}\n"
+                else:
+                    report += f"   {warning}\n"
+        
+        if 'error_lines' in log_info and log_info['error_lines']:
+            report += "\n❌ *ОШИБКИ:*\n"
+            for error in log_info['error_lines'][-3:]:  # Показываем последние 3
+                # Убираем timestamp для краткости
+                if ' - ' in error:
+                    error_content = error.split(' - ', 1)[1]
+                    report += f"   {error_content}\n"
+                else:
+                    report += f"   {error}\n"
         
         return report
     

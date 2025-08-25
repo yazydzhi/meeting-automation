@@ -79,3 +79,5 @@ env.*
 
 # Employee database (contains personal information)
 config/employee_database.py
+
+memory-bank/
