@@ -596,6 +596,18 @@ class MeetingAutomationService:
             # Запускаем транскрипцию через универсальный скрипт
             for mp3_file in mp3_files:
                 try:
+                    # Проверяем, существует ли уже файл транскрипции
+                    transcript_file = mp3_file.replace('.mp3', '_transcript.txt')
+                    if os.path.exists(transcript_file):
+                        self.logger.info(f"📄 Файл транскрипции уже существует: {os.path.basename(transcript_file)}")
+                        result["processed"] += 1
+                        result["files"].append({
+                            "file": os.path.basename(mp3_file),
+                            "status": "already_exists",
+                            "output": transcript_file
+                        })
+                        continue
+                    
                     self.logger.info(f"🎤 Транскрибирую: {os.path.basename(mp3_file)}")
                     
                     # Запускаем транскрипцию
@@ -812,23 +824,27 @@ class MeetingAutomationService:
             return f"❌ Ошибка формирования статуса: {str(e)}"
     
     def create_status_files(self):
-        """Создание видимых файлов статуса в папках аккаунтов."""
+        """Создание файлов статуса в папках аккаунтов."""
         try:
             self.logger.info("📁 Создаю файлы статуса в папках аккаунтов...")
             
-            # Обрабатываем личный аккаунт
             if self.config_manager and self.config_manager.is_personal_enabled():
                 personal_config = self.config_manager.get_personal_config()
                 personal_folder = personal_config.get('local_drive_root')
                 if personal_folder and os.path.exists(personal_folder):
+                    # Создаем статус в корневой папке
                     self._create_folder_status_file(personal_folder, "personal")
+                    # Создаем статус в каждой папке встречи
+                    self._create_meeting_status_files(personal_folder, "personal")
             
-            # Обрабатываем рабочий аккаунт
             if self.config_manager and self.config_manager.is_work_enabled():
                 work_config = self.config_manager.get_work_config()
                 work_folder = work_config.get('local_drive_root')
                 if work_folder and os.path.exists(work_folder):
+                    # Создаем статус в корневой папке
                     self._create_folder_status_file(work_folder, "work")
+                    # Создаем статус в каждой папке встречи
+                    self._create_meeting_status_files(work_folder, "work")
             
             self.logger.info("✅ Файлы статуса созданы")
             
@@ -858,6 +874,25 @@ class MeetingAutomationService:
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка создания файла статуса для {folder_path}: {e}")
+    
+    def _create_meeting_status_files(self, root_folder: str, account_type: str):
+        """Создание файлов статуса в каждой папке встречи."""
+        try:
+            # Ищем все папки встреч (папки с датами)
+            meeting_folders = []
+            for item in os.listdir(root_folder):
+                item_path = os.path.join(root_folder, item)
+                if os.path.isdir(item_path) and any(char.isdigit() for char in item):
+                    meeting_folders.append(item_path)
+            
+            for meeting_folder in meeting_folders:
+                try:
+                    self._create_folder_status_file(meeting_folder, account_type)
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Не удалось создать статус для папки встречи {meeting_folder}: {e}")
+                    
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания файлов статуса встреч: {e}")
     
     def _analyze_folder_status(self, folder_path: str, account_type: str) -> str:
         """Анализ статуса папки и формирование отчета."""

@@ -100,17 +100,43 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
     logger.info("🎬 Запуск обработки медиа файлов...")
     
     try:
-        # Для локальной обработки MediaProcessor не нужен
-        # Просто возвращаем успешный статус
         results = []
+        total_processed = 0
+        total_synced = 0
         
         if config_manager.is_personal_enabled():
             personal_config = config_manager.get_personal_config()
             personal_folder = personal_config.get('local_drive_root')
             if personal_folder and os.path.exists(personal_folder):
                 logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
-                # Простая проверка наличия файлов
-                personal_result = {"status": "success", "folder": personal_folder, "processed": 0, "synced": 0}
+                # Проверяем наличие видео файлов
+                video_files = []
+                for root, dirs, files in os.walk(personal_folder):
+                    for file in files:
+                        if file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                            video_files.append(os.path.join(root, file))
+                
+                if video_files:
+                    logger.info(f"🎥 Найдено {len(video_files)} видео файлов в личном аккаунте")
+                    # Проверяем, какие файлы уже обработаны
+                    processed_count = 0
+                    for video_file in video_files:
+                        compressed_file = video_file.replace('.mp4', '_compressed.mp4').replace('.avi', '_compressed.mp4').replace('.mov', '_compressed.mp4').replace('.mkv', '_compressed.mp4')
+                        if os.path.exists(compressed_file):
+                            processed_count += 1
+                    
+                    personal_result = {
+                        "status": "success", 
+                        "folder": personal_folder, 
+                        "processed": processed_count, 
+                        "synced": len(video_files),
+                        "total_videos": len(video_files)
+                    }
+                    total_processed += processed_count
+                    total_synced += len(video_files)
+                else:
+                    personal_result = {"status": "success", "folder": personal_folder, "processed": 0, "synced": 0, "total_videos": 0}
+                
                 results.append(personal_result)
             else:
                 logger.warning(f"⚠️ Папка личного аккаунта не найдена: {personal_folder}")
@@ -120,14 +146,46 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
             work_folder = work_config.get('local_drive_root')
             if work_folder and os.path.exists(work_folder):
                 logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
-                # Простая проверка наличия файлов
-                work_result = {"status": "success", "folder": work_folder, "processed": 0, "synced": 0}
+                # Проверяем наличие видео файлов
+                video_files = []
+                for root, dirs, files in os.walk(work_folder):
+                    for file in files:
+                        if file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                            video_files.append(os.path.join(root, file))
+                
+                if video_files:
+                    logger.info(f"🎥 Найдено {len(video_files)} видео файлов в рабочем аккаунте")
+                    # Проверяем, какие файлы уже обработаны
+                    processed_count = 0
+                    for video_file in video_files:
+                        compressed_file = video_file.replace('.mp4', '_compressed.mp4').replace('.avi', '_compressed.mp4').replace('.mov', '_compressed.mp4').replace('.mkv', '_compressed.mp4')
+                        if os.path.exists(compressed_file):
+                            processed_count += 1
+                    
+                    work_result = {
+                        "status": "success", 
+                        "folder": work_folder, 
+                        "processed": processed_count, 
+                        "synced": len(video_files),
+                        "total_videos": len(video_files)
+                    }
+                    total_processed += processed_count
+                    total_synced += len(video_files)
+                else:
+                    work_result = {"status": "success", "folder": work_folder, "processed": 0, "synced": 0, "total_videos": 0}
+                
                 results.append(work_result)
             else:
                 logger.warning(f"⚠️ Папка рабочего аккаунта не найдена: {work_folder}")
         
-        logger.info("✅ Обработка медиа завершена")
-        return {"status": "success", "message": "Media processing completed", "results": results}
+        logger.info(f"✅ Обработка медиа завершена: обработано {total_processed}, найдено {total_synced}")
+        return {
+            "status": "success", 
+            "message": "Media processing completed", 
+            "results": results,
+            "total_processed": total_processed,
+            "total_synced": total_synced
+        }
         
     except Exception as e:
         logger.error(f"❌ Ошибка обработки медиа: {e}")
@@ -173,7 +231,7 @@ def process_transcription(config_manager: ConfigManager, account_type: str, file
                 personal_folder = personal_config.get('local_drive_root')
                 if personal_folder and os.path.exists(personal_folder):
                     logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
-                    personal_result = _process_folder_transcription(audio_processor, personal_folder, "personal")
+                    personal_result = _process_folder_transcription(audio_processor, personal_folder, "personal", logger)
                     results.append(personal_result)
             
             if account_type in ['work', 'both'] and config_manager.is_work_enabled():
@@ -181,7 +239,7 @@ def process_transcription(config_manager: ConfigManager, account_type: str, file
                 work_folder = work_config.get('local_drive_root')
                 if work_folder and os.path.exists(work_folder):
                     logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
-                    work_result = _process_folder_transcription(audio_processor, work_folder, "work")
+                    work_result = _process_folder_transcription(audio_processor, work_folder, "work", logger)
                     results.append(work_result)
             
             logger.info("✅ Транскрипция завершена")
@@ -191,8 +249,11 @@ def process_transcription(config_manager: ConfigManager, account_type: str, file
         logger.error(f"❌ Ошибка транскрипции: {e}")
         return {"status": "error", "message": str(e)}
 
-def _process_folder_transcription(audio_processor: AudioProcessor, folder_path: str, account_type: str):
+def _process_folder_transcription(audio_processor: AudioProcessor, folder_path: str, account_type: str, logger: logging.Logger = None):
     """Обработка транскрипции для конкретной папки."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+        
     try:
         result = {"account": account_type, "folder": folder_path, "processed": 0, "errors": 0, "files": []}
         
@@ -206,13 +267,27 @@ def _process_folder_transcription(audio_processor: AudioProcessor, folder_path: 
         if not mp3_files:
             return result
         
+        logger.info(f"🎵 Найдено {len(mp3_files)} MP3 файлов для транскрипции")
+        
         # Обрабатываем каждый MP3 файл
         for mp3_file in mp3_files:
             try:
+                # Проверяем, существует ли уже файл транскрипции
+                transcript_file = mp3_file.replace('.mp3', '_transcript.txt')
+                if os.path.exists(transcript_file):
+                    logger.info(f"📄 Файл транскрипции уже существует: {os.path.basename(transcript_file)}")
+                    result["processed"] += 1
+                    result["files"].append({
+                        "file": os.path.basename(mp3_file),
+                        "status": "already_exists",
+                        "output": transcript_file
+                    })
+                    continue
+                
+                logger.info(f"🎤 Создаю транскрипцию для: {os.path.basename(mp3_file)}")
                 transcript = audio_processor._transcribe_full_audio(mp3_file)
                 if transcript:
                     # Сохраняем транскрипцию
-                    transcript_file = mp3_file.replace('.mp3', '_transcript.txt')
                     with open(transcript_file, 'w', encoding='utf-8') as f:
                         f.write(transcript)
                     
