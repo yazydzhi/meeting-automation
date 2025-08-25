@@ -45,57 +45,66 @@ class ConfigManager:
                         logger.info(f"🔧 Загружена переменная: {key}={value}")
         
         # Проверяем загруженные переменные
-        transcription_method = os.getenv('TRANSCRIPTION_METHOD', 'NOT_FOUND')
-        logger.info(f"🔧 TRANSCRIPTION_METHOD: {transcription_method}")
+        account_type = os.getenv('ACCOUNT_TYPE', 'both')
+        logger.info(f"🔧 ACCOUNT_TYPE: {account_type}")
         
-        # Настройки календаря
-        self.config['calendar'] = {
-            'provider_type': os.getenv('CALENDAR_PROVIDER', 'google_api'),
-            'google_api': {
-                'credentials_path': os.getenv('GOOGLE_CALENDAR_CREDENTIALS', ''),
-                'calendar_id': os.getenv('PERSONAL_CALENDAR_ID', '')
+        # Настройки аккаунтов
+        self.config['accounts'] = {
+            'type': account_type,
+            'personal': {
+                'enabled': account_type in ['personal', 'both'],
+                'google_credentials': os.getenv('PERSONAL_GOOGLE_CREDENTIALS', ''),
+                'calendar_id': os.getenv('PERSONAL_CALENDAR_ID', ''),
+                'drive_parent_id': os.getenv('PERSONAL_DRIVE_PARENT_ID', ''),
+                'notion_token': os.getenv('PERSONAL_NOTION_TOKEN', ''),
+                'notion_database_id': os.getenv('PERSONAL_NOTION_DATABASE_ID', ''),
+                'telegram_bot_token': os.getenv('PERSONAL_TELEGRAM_BOT_TOKEN', ''),
+                'telegram_chat_id': os.getenv('PERSONAL_TELEGRAM_CHAT_ID', ''),
+                'calendar_provider': os.getenv('PERSONAL_CALENDAR_PROVIDER', 'web_ical'),
+                'ical_calendar_url': os.getenv('PERSONAL_ICAL_CALENDAR_URL', ''),
+                'drive_provider': os.getenv('PERSONAL_DRIVE_PROVIDER', 'local'),
+                'local_drive_root': os.getenv('PERSONAL_LOCAL_DRIVE_ROOT', '')
             },
-            'notion': {
-                'notion_token': os.getenv('NOTION_TOKEN', ''),
-                'database_id': os.getenv('NOTION_CALENDAR_DATABASE_ID', '')
-            },
-            'web_ical': {
-                'calendar_url': os.getenv('ICAL_CALENDAR_URL', '')
-            },
-            'web_rss': {
-                'calendar_url': os.getenv('RSS_CALENDAR_URL', '')
-            },
-            'local_ics': {
-                'calendar_file': os.getenv('LOCAL_ICS_FILE', '')
-            },
-            'local_json': {
-                'calendar_file': os.getenv('LOCAL_JSON_FILE', '')
-            }
-        }
-        
-        # Настройки Google Drive
-        self.config['drive'] = {
-            'provider_type': os.getenv('DRIVE_PROVIDER', 'google_api'),
-            'google_api': {
-                'credentials_path': os.getenv('GOOGLE_DRIVE_CREDENTIALS', '')
-            },
-            'local': {
-                'root_path': os.getenv('LOCAL_DRIVE_ROOT', 'data/local_drive')
-            },
-            'google_desktop': {
-                'drive_path': os.getenv('GOOGLE_DRIVE_DESKTOP_PATH', '')
+            'work': {
+                'enabled': account_type in ['work', 'both'],
+                'google_credentials': os.getenv('WORK_GOOGLE_CREDENTIALS', ''),
+                'calendar_id': os.getenv('WORK_CALENDAR_ID', ''),
+                'drive_parent_id': os.getenv('WORK_DRIVE_PARENT_ID', ''),
+                'notion_token': os.getenv('WORK_NOTION_TOKEN', ''),
+                'notion_database_id': os.getenv('WORK_NOTION_DATABASE_ID', ''),
+                'notion_parent_page_id': os.getenv('WORK_NOTION_PARENT_PAGE_ID', ''),
+                'notion_db_title': os.getenv('WORK_NOTION_DB_TITLE', ''),
+                'telegram_bot_token': os.getenv('WORK_TELEGRAM_BOT_TOKEN', ''),
+                'telegram_chat_id': os.getenv('WORK_TELEGRAM_CHAT_ID', ''),
+                'calendar_provider': os.getenv('WORK_CALENDAR_PROVIDER', 'web_ical'),
+                'ical_calendar_url': os.getenv('WORK_ICAL_CALENDAR_URL', ''),
+                'drive_provider': os.getenv('WORK_DRIVE_PROVIDER', 'local'),
+                'local_drive_root': os.getenv('WORK_LOCAL_DRIVE_ROOT', '')
             }
         }
         
         # Общие настройки
         self.config['general'] = {
             'timezone': os.getenv('TIMEZONE', 'Europe/Moscow'),
-            'log_level': os.getenv('LOG_LEVEL', 'INFO')
+            'log_level': os.getenv('LOG_LEVEL', 'INFO'),
+            'service_check_interval': int(os.getenv('SERVICE_CHECK_INTERVAL', '300')),
+            'service_media_interval': int(os.getenv('SERVICE_MEDIA_INTERVAL', '1800')),
+            'media_processing_timeout': int(os.getenv('MEDIA_PROCESSING_TIMEOUT', '1800'))
+        }
+        
+        # Настройки медиа обработки
+        self.config['media'] = {
+            'output_format': os.getenv('MEDIA_OUTPUT_FORMAT', 'mp3'),
+            'quality': os.getenv('MEDIA_QUALITY', 'medium'),
+            'cleanup_days': int(os.getenv('MEDIA_CLEANUP_DAYS', '30')),
+            'video_compression': os.getenv('VIDEO_COMPRESSION', 'true').lower() == 'true',
+            'video_quality': os.getenv('VIDEO_QUALITY', 'medium'),
+            'video_codec': os.getenv('VIDEO_CODEC', 'h264')
         }
         
         # Настройки Whisper и транскрипции
         self.config['whisper'] = {
-            'transcription_method': os.getenv('TRANSCRIPTION_METHOD', 'openai'),
+            'transcription_method': os.getenv('TRANSCRIPTION_METHOD', 'whisper'),
             'openai_api_key': os.getenv('OPENAI_API_KEY', ''),
             'whisper_model': os.getenv('WHISPER_MODEL', 'whisper-1'),
             'whisper_model_local': os.getenv('WHISPER_MODEL_LOCAL', 'base'),
@@ -114,97 +123,132 @@ class ConfigManager:
             'analysis_max_tokens': int(os.getenv('OPENAI_ANALYSIS_MAX_TOKENS', '4000'))
         }
         
-        # Настройки Notion
-        self.config['notion'] = {
-            'notion_token': os.getenv('NOTION_TOKEN', ''),
-            'database_id': os.getenv('NOTION_DATABASE_ID', ''),
-            'parent_page_id': os.getenv('NOTION_PARENT_PAGE_ID', ''),
-            'db_title': os.getenv('NOTION_DB_TITLE', '')
-        }
-        
+        logger.info(f"🔧 Настройки аккаунтов: {self.config['accounts']}")
+        logger.info(f"🔧 Настройки медиа: {self.config['media']}")
         logger.info(f"🔧 Настройки Whisper: {self.config['whisper']}")
         logger.info(f"🔧 Настройки OpenAI: {self.config['openai']}")
-        logger.info(f"🔧 Настройки Notion: {self.config['notion']}")
         logger.info("Конфигурация загружена")
     
-    def get_calendar_config(self) -> Dict[str, Any]:
-        """Получить конфигурацию календаря."""
-        return self.config['calendar']
+    def get_accounts_config(self) -> Dict[str, Any]:
+        """Получить конфигурацию аккаунтов."""
+        return self.config['accounts']
     
-    def get_drive_config(self) -> Dict[str, Any]:
-        """Получить конфигурацию Google Drive."""
-        return self.config['drive']
+    def get_personal_config(self) -> Dict[str, Any]:
+        """Получить конфигурацию личного аккаунта."""
+        return self.config['accounts']['personal']
     
-    def get_calendar_provider_type(self) -> str:
-        """Получить тип провайдера календаря."""
-        return self.config['calendar']['provider_type']
+    def get_work_config(self) -> Dict[str, Any]:
+        """Получить конфигурацию рабочего аккаунта."""
+        return self.config['accounts']['work']
     
-    def get_drive_provider_type(self) -> str:
-        """Получить тип провайдера Google Drive."""
-        return self.config['drive']['provider_type']
+    def is_personal_enabled(self) -> bool:
+        """Проверить, включен ли личный аккаунт."""
+        return self.config['accounts']['personal']['enabled']
     
-    def get_calendar_provider_config(self) -> Dict[str, Any]:
-        """Получить конфигурацию для текущего провайдера календаря."""
-        provider_type = self.get_calendar_provider_type()
-        return self.config['calendar'].get(provider_type, {})
+    def is_work_enabled(self) -> bool:
+        """Проверить, включен ли рабочий аккаунт."""
+        return self.config['accounts']['work']['enabled']
     
-    def get_drive_provider_config(self) -> Dict[str, Any]:
-        """Получить конфигурацию для текущего провайдера Google Drive."""
-        provider_type = self.get_drive_provider_type()
-        return self.config['drive'].get(provider_type, {})
+    def get_media_config(self) -> Dict[str, Any]:
+        """Получить конфигурацию медиа обработки."""
+        return self.config['media']
+    
+    def get_general_config(self) -> Dict[str, Any]:
+        """Получить общие настройки."""
+        return self.config['general']
+    
+    def get_whisper_config(self) -> Dict[str, Any]:
+        """Получить настройки Whisper."""
+        return self.config['whisper']
+    
+    def get_calendar_provider_type(self, account_type: str = 'personal') -> str:
+        """Получить тип провайдера календаря для указанного аккаунта."""
+        if account_type == 'personal':
+            return self.config['accounts']['personal']['calendar_provider']
+        elif account_type == 'work':
+            return self.config['accounts']['work']['calendar_provider']
+        return 'web_ical'
+    
+    def get_drive_provider_type(self, account_type: str = 'personal') -> str:
+        """Получить тип провайдера Google Drive для указанного аккаунта."""
+        if account_type == 'personal':
+            return self.config['accounts']['personal']['drive_provider']
+        elif account_type == 'work':
+            return self.config['accounts']['work']['drive_provider']
+        return 'local'
+    
+    def get_calendar_provider_config(self, account_type: str = 'personal') -> Dict[str, Any]:
+        """Получить конфигурацию для текущего провайдера календаря указанного аккаунта."""
+        if account_type == 'personal':
+            return {
+                'provider_type': self.config['accounts']['personal']['calendar_provider'],
+                'ical_calendar_url': self.config['accounts']['personal']['ical_calendar_url']
+            }
+        elif account_type == 'work':
+            return {
+                'provider_type': self.config['accounts']['work']['calendar_provider'],
+                'ical_calendar_url': self.config['accounts']['work']['ical_calendar_url']
+            }
+        return {}
+    
+    def get_drive_provider_config(self, account_type: str = 'personal') -> Dict[str, Any]:
+        """Получить конфигурацию для текущего провайдера Google Drive указанного аккаунта."""
+        if account_type == 'personal':
+            return {
+                'provider_type': self.config['accounts']['personal']['drive_provider'],
+                'local_root_path': self.config['accounts']['personal']['local_drive_root']
+            }
+        elif account_type == 'work':
+            return {
+                'provider_type': self.config['accounts']['work']['drive_provider'],
+                'local_root_path': self.config['accounts']['work']['local_drive_root']
+            }
+        return {}
     
     def validate_config(self) -> bool:
         """Проверить корректность конфигурации."""
         errors = []
         
-        # Проверяем календарь
-        calendar_config = self.get_calendar_config()
-        provider_type = calendar_config['provider_type']
-        provider_config = calendar_config.get(provider_type, {})
+        # Проверяем настройки аккаунтов
+        account_type = self.config['accounts']['type']
+        logger.info(f"🔧 Проверяю конфигурацию для типа аккаунта: {account_type}")
         
-        if provider_type == 'google_api':
-            if not provider_config.get('credentials_path'):
-                errors.append("GOOGLE_CALENDAR_CREDENTIALS не указан для google_api")
-            if not provider_config.get('calendar_id'):
-                errors.append("PERSONAL_CALENDAR_ID не указан для google_api")
-        elif provider_type == 'notion':
-            if not provider_config.get('notion_token'):
-                errors.append("NOTION_TOKEN не указан для notion")
-            if not provider_config.get('database_id'):
-                errors.append("NOTION_CALENDAR_DATABASE_ID не указан для notion")
-        elif provider_type == 'web_ical':
-            if not provider_config.get('calendar_url'):
-                errors.append("ICAL_CALENDAR_URL не указан для web_ical")
-        elif provider_type == 'web_rss':
-            if not provider_config.get('calendar_url'):
-                errors.append("RSS_CALENDAR_URL не указан для web_rss")
-        elif provider_type == 'local_ics':
-            if not provider_config.get('calendar_file'):
-                errors.append("LOCAL_ICS_FILE не указан для local_ics")
-        elif provider_type == 'local_json':
-            if not provider_config.get('calendar_file'):
-                errors.append("LOCAL_JSON_FILE не указан для local_json")
+        # Проверяем личный аккаунт
+        if self.is_personal_enabled():
+            personal_config = self.get_personal_config()
+            logger.info("🔧 Проверяю личный аккаунт...")
+            
+            if personal_config['calendar_provider'] == 'web_ical':
+                if not personal_config['ical_calendar_url']:
+                    errors.append("PERSONAL_ICAL_CALENDAR_URL не указан для личного аккаунта")
+            
+            if personal_config['drive_provider'] == 'local':
+                if not personal_config['local_drive_root']:
+                    errors.append("PERSONAL_LOCAL_DRIVE_ROOT не указан для личного аккаунта")
+                elif not os.path.exists(personal_config['local_drive_root']):
+                    errors.append(f"Путь личного Google Drive не найден: {personal_config['local_drive_root']}")
         
-        # Проверяем Google Drive
-        drive_config = self.get_drive_config()
-        drive_provider_type = drive_config['provider_type']
-        drive_provider_config = drive_config.get(drive_provider_type, {})
-        
-        if drive_provider_type == 'google_api':
-            if not drive_provider_config.get('credentials_path'):
-                errors.append("GOOGLE_DRIVE_CREDENTIALS не указан для google_api")
-        elif drive_provider_type == 'google_desktop':
-            if not drive_provider_config.get('drive_path'):
-                errors.append("GOOGLE_DRIVE_DESKTOP_PATH не указан для google_desktop")
-            elif not os.path.exists(drive_provider_config['drive_path']):
-                errors.append(f"Путь Google Drive не найден: {drive_provider_config['drive_path']}")
+        # Проверяем рабочий аккаунт
+        if self.is_work_enabled():
+            work_config = self.get_work_config()
+            logger.info("🔧 Проверяю рабочий аккаунт...")
+            
+            if work_config['calendar_provider'] == 'web_ical':
+                if not work_config['ical_calendar_url']:
+                    errors.append("WORK_ICAL_CALENDAR_URL не указан для рабочего аккаунта")
+            
+            if work_config['drive_provider'] == 'local':
+                if not work_config['local_drive_root']:
+                    errors.append("WORK_LOCAL_DRIVE_ROOT не указан для рабочего аккаунта")
+                elif not os.path.exists(work_config['local_drive_root']):
+                    errors.append(f"Путь рабочего Google Drive не найден: {work_config['local_drive_root']}")
         
         if errors:
             for error in errors:
                 logger.error(f"Ошибка конфигурации: {error}")
             return False
         
-        logger.info("Конфигурация корректна")
+        logger.info("✅ Конфигурация корректна")
         return True
     
     def get(self, key: str, default: Any = None) -> Any:
@@ -226,37 +270,48 @@ class ConfigManager:
         """Получить краткое описание конфигурации."""
         summary = "📋 Конфигурация системы:\n\n"
         
-        # Календарь
-        calendar_type = self.get_calendar_provider_type()
-        summary += f"📅 Календарь: {calendar_type}\n"
+        # Тип аккаунта
+        account_type = self.config['accounts']['type']
+        summary += f"👤 Тип аккаунта: {account_type}\n\n"
         
-        if calendar_type == 'google_api':
-            config = self.config['calendar']['google_api']
-            summary += f"   - Учетные данные: {config['credentials_path']}\n"
-            summary += f"   - ID календаря: {config['calendar_id']}\n"
-        elif calendar_type == 'notion':
-            config = self.config['calendar']['notion']
-            summary += f"   - База данных: {config['database_id']}\n"
-        elif calendar_type in ['web_ical', 'web_rss']:
-            config = self.config['calendar'][calendar_type]
-            summary += f"   - URL: {config['calendar_url']}\n"
-        elif calendar_type in ['local_ics', 'local_json']:
-            config = self.config['calendar'][calendar_type]
-            summary += f"   - Файл: {config['calendar_file']}\n"
+        # Личный аккаунт
+        if self.is_personal_enabled():
+            personal_config = self.get_personal_config()
+            summary += "👤 Личный аккаунт:\n"
+            summary += f"   - Календарь: {personal_config['calendar_provider']}\n"
+            if personal_config['calendar_provider'] == 'web_ical':
+                summary += f"   - ICAL URL: {personal_config['ical_calendar_url']}\n"
+            summary += f"   - Google Drive: {personal_config['drive_provider']}\n"
+            if personal_config['drive_provider'] == 'local':
+                summary += f"   - Локальная папка: {personal_config['local_drive_root']}\n"
+            summary += "\n"
         
-        # Google Drive
-        drive_type = self.get_drive_provider_type()
-        summary += f"\n💾 Google Drive: {drive_type}\n"
+        # Рабочий аккаунт
+        if self.is_work_enabled():
+            work_config = self.get_work_config()
+            summary += "🏢 Рабочий аккаунт:\n"
+            summary += f"   - Календарь: {work_config['calendar_provider']}\n"
+            if work_config['calendar_provider'] == 'web_ical':
+                summary += f"   - ICAL URL: {work_config['ical_calendar_url']}\n"
+            summary += f"   - Google Drive: {work_config['drive_provider']}\n"
+            if work_config['drive_provider'] == 'local':
+                summary += f"   - Локальная папка: {work_config['local_drive_root']}\n"
+            summary += "\n"
         
-        if drive_type == 'google_api':
-            config = self.config['drive']['google_api']
-            summary += f"   - Учетные данные: {config['credentials_path']}\n"
-        elif drive_type == 'local':
-            config = self.config['drive']['local']
-            summary += f"   - Локальная папка: {config['root_path']}\n"
-        elif drive_type == 'google_desktop':
-            config = self.config['drive']['google_desktop']
-            summary += f"   - Путь: {config['drive_path']}\n"
+        # Медиа обработка
+        media_config = self.get_media_config()
+        summary += "🎬 Медиа обработка:\n"
+        summary += f"   - Формат: {media_config['output_format']}\n"
+        summary += f"   - Качество: {media_config['quality']}\n"
+        summary += f"   - Сжатие видео: {media_config['video_compression']}\n"
+        summary += "\n"
+        
+        # Whisper
+        whisper_config = self.get_whisper_config()
+        summary += "🎤 Whisper:\n"
+        summary += f"   - Метод: {whisper_config['transcription_method']}\n"
+        summary += f"   - Модель: {whisper_config['whisper_model']}\n"
+        summary += f"   - Язык: {whisper_config['whisper_language']}\n"
         
         return summary
     
