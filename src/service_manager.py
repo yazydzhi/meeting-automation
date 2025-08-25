@@ -567,31 +567,57 @@ class MeetingAutomationService:
                 # Формируем сообщение о статусе
                 status_message = self._format_status_message()
                 
-                # Отправляем через curl (простой способ)
-                import subprocess
-                import json
-                
-                message_data = {
-                    "chat_id": telegram_config['chat_id'],
-                    "text": status_message,
-                    "parse_mode": "HTML"
-                }
-                
-                curl_result = subprocess.run([
-                    "curl", "-s", "-X", "POST",
-                    f"https://api.telegram.org/bot{telegram_config['bot_token']}/sendMessage",
-                    "-H", "Content-Type: application/json",
-                    "-d", json.dumps(message_data)
-                ], capture_output=True, text=True, timeout=30)
-                
-                if curl_result.returncode == 0:
-                    telegram_stats["sent"] = 1
-                    telegram_stats["details"].append("Уведомление отправлено успешно")
-                    self.logger.info("✅ Уведомление в Telegram отправлено")
-                else:
-                    telegram_stats["errors"] = 1
-                    telegram_stats["details"].append(f"Ошибка отправки: {curl_result.stderr}")
-                    self.logger.error(f"❌ Ошибка отправки в Telegram: {curl_result.stderr}")
+                # Отправляем через Python requests
+                try:
+                    import requests
+                    
+                    message_data = {
+                        "chat_id": telegram_config['chat_id'],
+                        "text": status_message,
+                        "parse_mode": "HTML"
+                    }
+                    
+                    response = requests.post(
+                        f"https://api.telegram.org/bot{telegram_config['bot_token']}/sendMessage",
+                        json=message_data,
+                        timeout=30
+                    )
+                    
+                    if response.status_code == 200:
+                        telegram_stats["sent"] = 1
+                        telegram_stats["details"].append("Уведомление отправлено успешно")
+                        self.logger.info("✅ Уведомление в Telegram отправлено")
+                    else:
+                        telegram_stats["errors"] = 1
+                        telegram_stats["details"].append(f"Ошибка отправки: HTTP {response.status_code}")
+                        self.logger.error(f"❌ Ошибка отправки в Telegram: HTTP {response.status_code}")
+                        
+                except ImportError:
+                    # Fallback к curl если requests не доступен
+                    import subprocess
+                    import json
+                    
+                    message_data = {
+                        "chat_id": telegram_config['chat_id'],
+                        "text": status_message,
+                        "parse_mode": "HTML"
+                    }
+                    
+                    curl_result = subprocess.run([
+                        "curl", "-s", "-X", "POST",
+                        f"https://api.telegram.org/bot{telegram_config['bot_token']}/sendMessage",
+                        "-H", "Content-Type: application/json",
+                        "-d", json.dumps(message_data)
+                    ], capture_output=True, text=True, timeout=30)
+                    
+                    if curl_result.returncode == 0:
+                        telegram_stats["sent"] = 1
+                        telegram_stats["details"].append("Уведомление отправлено успешно")
+                        self.logger.info("✅ Уведомление в Telegram отправлено")
+                    else:
+                        telegram_stats["errors"] = 1
+                        telegram_stats["details"].append(f"Ошибка отправки: {curl_result.stderr}")
+                        self.logger.error(f"❌ Ошибка отправки в Telegram: {curl_result.stderr}")
                     
             except subprocess.TimeoutExpired:
                 telegram_stats["errors"] = 1
