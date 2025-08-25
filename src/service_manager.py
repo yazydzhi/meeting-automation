@@ -257,6 +257,10 @@ class MeetingAutomationService:
         try:
             self.logger.info("🎬 Проверка медиа файлов...")
             
+            # Увеличиваем таймаут для медиа обработки (может занимать много времени)
+            media_timeout = 1800  # 30 минут для медиа обработки
+            self.logger.info(f"⏰ Таймаут медиа обработки: {media_timeout} секунд")
+            
             # Проверяем, нужно ли обрабатывать медиа
             current_time = time.time()
             if hasattr(self, 'last_media_check') and self.last_media_check is not None and current_time - self.last_media_check < self.media_check_interval:
@@ -308,10 +312,6 @@ class MeetingAutomationService:
             # Устанавливаем правильный PATH для FFmpeg
             env = os.environ.copy()
             env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
-            
-            # Увеличиваем таймаут для медиа обработки (может занимать много времени)
-            media_timeout = 1800  # 30 минут для медиа обработки
-            self.logger.info(f"⏰ Таймаут медиа обработки: {media_timeout} секунд")
             
             personal_result = subprocess.run([
                 sys.executable, "meeting_automation_personal.py", "media", "--quality", "medium"
