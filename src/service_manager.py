@@ -154,26 +154,13 @@ class MeetingAutomationService:
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         
-        # Хендлер для ошибок (только ERROR и выше)
-        error_handler = logging.FileHandler(log_dir / "service_error.log")
-        error_handler.setLevel(logging.ERROR)
-        error_handler.setFormatter(formatter)
-        
         # Хендлер для консоли (только INFO)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(formatter)
         
-        # Создаем фильтр для error_handler, чтобы он принимал только ERROR и выше
-        class ErrorFilter(logging.Filter):
-            def filter(self, record):
-                return record.levelno >= logging.ERROR
-        
-        error_handler.addFilter(ErrorFilter())
-        
-        # Добавляем хендлеры
+        # Добавляем хендлеры в основной логгер
         logger.addHandler(file_handler)
-        logger.addHandler(error_handler)
         logger.addHandler(console_handler)
         
         return logger
