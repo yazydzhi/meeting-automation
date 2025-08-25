@@ -691,7 +691,7 @@ class MeetingAutomationService:
     def _create_folder_status_file(self, folder_path: str, account_type: str):
         """Создание файла статуса для конкретной папки."""
         try:
-            status_file_path = os.path.join(folder_path, "STATUS_ОБРАБОТКИ.txt")
+            status_file_path = os.path.join(folder_path, "📊 СТАТУС ОБРАБОТКИ.txt")
             
             # Анализируем содержимое папки
             status_info = self._analyze_folder_status(folder_path, account_type)
@@ -699,6 +699,13 @@ class MeetingAutomationService:
             # Создаем файл статуса
             with open(status_file_path, 'w', encoding='utf-8') as f:
                 f.write(status_info)
+            
+            # Делаем файл более заметным (убираем скрытые атрибуты)
+            try:
+                import subprocess
+                subprocess.run(['chflags', 'nohidden', status_file_path], check=False)
+            except:
+                pass  # Игнорируем ошибки, если chflags недоступен
             
             self.logger.info(f"✅ Файл статуса создан: {status_file_path}")
             
@@ -712,9 +719,11 @@ class MeetingAutomationService:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             status_report = f"""📊 СТАТУС ОБРАБОТКИ ПАПКИ
+{'='*50}
 📁 Папка: {folder_path}
 👤 Аккаунт: {account_type}
 ⏰ Время проверки: {current_time}
+{'='*50}
 
 🎬 ВИДЕО ФАЙЛЫ:
 """
@@ -784,6 +793,7 @@ class MeetingAutomationService:
             # Добавляем рекомендации
             status_report += f"""
 
+{'='*50}
 💡 РЕКОМЕНДАЦИИ:
 • Если есть оригинальные видео без сжатых версий - они будут обработаны в следующем цикле
 • Если есть MP3 файлы без транскрипций - они будут транскрибированы в следующем цикле
@@ -792,9 +802,10 @@ class MeetingAutomationService:
 🔄 Следующая проверка: через 5 минут
 📱 Уведомления отправляются в Telegram
 📝 Заметки сохраняются в Notion
+{'='*50}
 
----
 🤖 Автоматически создано системой meeting_automation
+📅 {current_time}
 """
             
             return status_report
