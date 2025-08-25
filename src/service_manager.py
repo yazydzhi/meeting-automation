@@ -82,6 +82,54 @@ class MeetingAutomationService:
         
         self.logger.warning("⚠️ ffmpeg не найден в системе. Медиа обработка может не работать.")
     
+    def _kill_hanging_ffmpeg_processes(self):
+        """Останавливает зависшие FFmpeg процессы."""
+        try:
+            # Ищем процессы ffmpeg
+            result = subprocess.run(['pgrep', '-f', 'ffmpeg'], 
+                                  capture_output=True, text=True, timeout=10)
+            
+            if result.returncode == 0:
+                pids = result.stdout.strip().split('\n')
+                if pids and pids[0]:  # Проверяем, что есть процессы
+                    self.logger.warning(f"⚠️ Найдены зависшие FFmpeg процессы: {pids}")
+                    
+                    for pid in pids:
+                        if pid.strip():
+                            try:
+                                # Пытаемся остановить процесс
+                                subprocess.run(['kill', '-TERM', pid.strip()], 
+                                             capture_output=True, text=True, timeout=5)
+                                self.logger.info(f"🔄 Отправлен сигнал TERM процессу FFmpeg PID: {pid}")
+                            except Exception as e:
+                                self.logger.error(f"❌ Не удалось остановить FFmpeg PID {pid}: {e}")
+                    
+                    # Ждем немного и проверяем, остались ли процессы
+                    time.sleep(2)
+                    result = subprocess.run(['pgrep', '-f', 'ffmpeg'], 
+                                          capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0:
+                        remaining_pids = result.stdout.strip().split('\n')
+                        if remaining_pids and remaining_pids[0]:
+                            self.logger.warning(f"⚠️ Остались зависшие процессы: {remaining_pids}")
+                            # Принудительно убиваем оставшиеся процессы
+                            for pid in remaining_pids:
+                                if pid.strip():
+                                    try:
+                                        subprocess.run(['kill', '-KILL', pid.strip()], 
+                                                     capture_output=True, text=True, timeout=5)
+                                        self.logger.info(f"💀 Принудительно остановлен FFmpeg PID: {pid}")
+                                    except Exception as e:
+                                        self.logger.error(f"❌ Не удалось принудительно остановить FFmpeg PID {pid}: {e}")
+                else:
+                    self.logger.info("✅ Зависших FFmpeg процессов не найдено")
+            else:
+                self.logger.info("✅ Зависших FFmpeg процессов не найдено")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка при проверке зависших FFmpeg процессов: {e}")
+    
     def _setup_logging(self) -> logging.Logger:
         """Настройка логирования."""
         # Создаем директорию для логов
@@ -92,23 +140,33 @@ class MeetingAutomationService:
         logger = logging.getLogger("meeting_automation_service")
         logger.setLevel(logging.INFO)
         
+        # Очищаем существующие хендлеры
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
+        
         # Форматтер
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
-        # Хендлер для файла
+        # Хендлер для основного лога (INFO и выше)
         file_handler = logging.FileHandler(log_dir / "service.log")
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         
-        # Хендлер для консоли
+        # Хендлер для ошибок (ERROR и выше)
+        error_handler = logging.FileHandler(log_dir / "service_error.log")
+        error_handler.setLevel(logging.ERROR)
+        error_handler.setFormatter(formatter)
+        
+        # Хендлер для консоли (только INFO)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(logging.INFO)
         console_handler.setFormatter(formatter)
         
         # Добавляем хендлеры
         logger.addHandler(file_handler)
+        logger.addHandler(error_handler)
         logger.addHandler(console_handler)
         
         return logger
@@ -211,6 +269,8 @@ class MeetingAutomationService:
             
             # Запускаем медиа обработку для рабочего аккаунта
             self.logger.info("🎬 Запуск медиа обработки для рабочего аккаунта...")
+            self.logger.info("📁 Обрабатываемые папки: /Users/azg/Downloads/02 - work@company.com")
+            self.logger.info("🎥 Ищем видео файлы для обработки...")
             
             # Устанавливаем правильный PATH для FFmpeg
             env = os.environ.copy()
@@ -218,7 +278,7 @@ class MeetingAutomationService:
             
             work_result = subprocess.run([
                 sys.executable, "meeting_automation_work.py", "media", "--quality", "medium"
-            ], capture_output=True, text=True, timeout=600, env=env)
+            ], capture_output=True, text=True, timeout=media_timeout, env=env)
             
             if work_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка рабочего аккаунта завершена успешно")
@@ -242,14 +302,20 @@ class MeetingAutomationService:
             # Запускаем медиа обработку для личного аккаунта
             self.logger.info("🎬 Запуск медиа обработки для личного аккаунта...")
             self.logger.info("📁 Команда: meeting_automation_personal.py media --quality medium")
+            self.logger.info("📁 Обрабатываемые папки: /Users/azg/Downloads/01 - yazydzhi@gmail.com")
+            self.logger.info("🎥 Ищем видео файлы для обработки...")
             
             # Устанавливаем правильный PATH для FFmpeg
             env = os.environ.copy()
             env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
             
+            # Увеличиваем таймаут для медиа обработки (может занимать много времени)
+            media_timeout = 1800  # 30 минут для медиа обработки
+            self.logger.info(f"⏰ Таймаут медиа обработки: {media_timeout} секунд")
+            
             personal_result = subprocess.run([
                 sys.executable, "meeting_automation_personal.py", "media", "--quality", "medium"
-            ], capture_output=True, text=True, timeout=600, env=env)
+            ], capture_output=True, text=True, timeout=media_timeout, env=env)
             
             if personal_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка личного аккаунта завершена успешно")
@@ -284,6 +350,11 @@ class MeetingAutomationService:
                 
         except subprocess.TimeoutExpired:
             self.logger.error("⏰ Медиа обработка превысила время выполнения")
+            self.logger.warning("⚠️ Проверяем и останавливаем зависшие FFmpeg процессы...")
+            
+            # Останавливаем зависшие FFmpeg процессы
+            self._kill_hanging_ffmpeg_processes()
+            
             # Обновляем время последней проверки медиа даже при ошибке
             self.last_media_check = current_time
             return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
