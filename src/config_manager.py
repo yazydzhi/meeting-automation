@@ -48,6 +48,19 @@ class ConfigManager:
         account_type = os.getenv('ACCOUNT_TYPE', 'both')
         logger.info(f"🔧 ACCOUNT_TYPE: {account_type}")
         
+        # Общие настройки Telegram и Notion
+        self.config['telegram'] = {
+            'bot_token': os.getenv('TELEGRAM_BOT_TOKEN', ''),
+            'chat_id': os.getenv('TELEGRAM_CHAT_ID', '')
+        }
+        
+        self.config['notion'] = {
+            'token': os.getenv('NOTION_TOKEN', ''),
+            'database_id': os.getenv('NOTION_DATABASE_ID', ''),
+            'parent_page_id': os.getenv('NOTION_PARENT_PAGE_ID', ''),
+            'db_title': os.getenv('NOTION_DB_TITLE', '')
+        }
+        
         # Настройки аккаунтов
         self.config['accounts'] = {
             'type': account_type,
@@ -56,10 +69,6 @@ class ConfigManager:
                 'google_credentials': os.getenv('PERSONAL_GOOGLE_CREDENTIALS', ''),
                 'calendar_id': os.getenv('PERSONAL_CALENDAR_ID', ''),
                 'drive_parent_id': os.getenv('PERSONAL_DRIVE_PARENT_ID', ''),
-                'notion_token': os.getenv('PERSONAL_NOTION_TOKEN', ''),
-                'notion_database_id': os.getenv('PERSONAL_NOTION_DATABASE_ID', ''),
-                'telegram_bot_token': os.getenv('PERSONAL_TELEGRAM_BOT_TOKEN', ''),
-                'telegram_chat_id': os.getenv('PERSONAL_TELEGRAM_CHAT_ID', ''),
                 'calendar_provider': os.getenv('PERSONAL_CALENDAR_PROVIDER', 'web_ical'),
                 'ical_calendar_url': os.getenv('PERSONAL_ICAL_CALENDAR_URL', ''),
                 'drive_provider': os.getenv('PERSONAL_DRIVE_PROVIDER', 'local'),
@@ -70,12 +79,6 @@ class ConfigManager:
                 'google_credentials': os.getenv('WORK_GOOGLE_CREDENTIALS', ''),
                 'calendar_id': os.getenv('WORK_CALENDAR_ID', ''),
                 'drive_parent_id': os.getenv('WORK_DRIVE_PARENT_ID', ''),
-                'notion_token': os.getenv('WORK_NOTION_TOKEN', ''),
-                'notion_database_id': os.getenv('WORK_NOTION_DATABASE_ID', ''),
-                'notion_parent_page_id': os.getenv('WORK_NOTION_PARENT_PAGE_ID', ''),
-                'notion_db_title': os.getenv('WORK_NOTION_DB_TITLE', ''),
-                'telegram_bot_token': os.getenv('WORK_TELEGRAM_BOT_TOKEN', ''),
-                'telegram_chat_id': os.getenv('WORK_TELEGRAM_CHAT_ID', ''),
                 'calendar_provider': os.getenv('WORK_CALENDAR_PROVIDER', 'web_ical'),
                 'ical_calendar_url': os.getenv('WORK_ICAL_CALENDAR_URL', ''),
                 'drive_provider': os.getenv('WORK_DRIVE_PROVIDER', 'local'),
@@ -160,6 +163,14 @@ class ConfigManager:
     def get_whisper_config(self) -> Dict[str, Any]:
         """Получить настройки Whisper."""
         return self.config['whisper']
+    
+    def get_telegram_config(self) -> Dict[str, Any]:
+        """Получить общие настройки Telegram."""
+        return self.config['telegram']
+    
+    def get_notion_config(self) -> Dict[str, Any]:
+        """Получить общие настройки Notion."""
+        return self.config['notion']
     
     def get_calendar_provider_type(self, account_type: str = 'personal') -> str:
         """Получить тип провайдера календаря для указанного аккаунта."""
@@ -304,6 +315,21 @@ class ConfigManager:
         summary += f"   - Формат: {media_config['output_format']}\n"
         summary += f"   - Качество: {media_config['quality']}\n"
         summary += f"   - Сжатие видео: {media_config['video_compression']}\n"
+        summary += "\n"
+        
+        # Telegram
+        telegram_config = self.get_telegram_config()
+        summary += "📱 Telegram:\n"
+        summary += f"   - Bot Token: {'✅ Настроен' if telegram_config['bot_token'] else '❌ Не настроен'}\n"
+        summary += f"   - Chat ID: {telegram_config['chat_id']}\n"
+        summary += "\n"
+        
+        # Notion
+        notion_config = self.get_notion_config()
+        summary += "📝 Notion:\n"
+        summary += f"   - Token: {'✅ Настроен' if notion_config['token'] else '❌ Не настроен'}\n"
+        summary += f"   - Database ID: {notion_config['database_id']}\n"
+        summary += f"   - DB Title: {notion_config['db_title']}\n"
         summary += "\n"
         
         # Whisper
