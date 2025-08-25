@@ -280,25 +280,28 @@ class MeetingAutomationService:
             total_synced = 0
             total_errors = 0
             
-            # Запускаем медиа обработку для рабочего аккаунта
+                        # Запускаем медиа обработку для рабочего аккаунта
             self.logger.info("🎬 Запуск медиа обработки для рабочего аккаунта...")
             
             if self.config_manager and self.config_manager.is_work_enabled():
                 work_config = self.config_manager.get_work_config()
                 work_folder = work_config.get('local_drive_root', 'не указано')
                 self.logger.info(f"📁 Обрабатываемые папки: {work_folder}")
+                
+                self.logger.info("🎥 Ищем видео файлы для обработки...")
+
+                # Устанавливаем правильный PATH для FFmpeg
+                env = os.environ.copy()
+                env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
+
+                work_result = subprocess.run([
+                    sys.executable, "meeting_automation_universal.py", "media", "--account", "work", "--quality", "medium"
+                ], capture_output=True, text=True, timeout=media_timeout, env=env)
             else:
                 self.logger.info("📁 Рабочий аккаунт отключен")
-            
-            self.logger.info("🎥 Ищем видео файлы для обработки...")
-            
-            # Устанавливаем правильный PATH для FFmpeg
-            env = os.environ.copy()
-            env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
-            
-            work_result = subprocess.run([
-                sys.executable, "meeting_automation_work.py", "media", "--quality", "medium"
-            ], capture_output=True, text=True, timeout=media_timeout, env=env)
+                work_result = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="", stderr=""
+                )
             
             if work_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка рабочего аккаунта завершена успешно")
@@ -319,26 +322,28 @@ class MeetingAutomationService:
                 self.logger.error(f"❌ Ошибка медиа обработки рабочего аккаунта: {work_result.stderr}")
                 total_errors += 1
             
-            # Запускаем медиа обработку для личного аккаунта
+                        # Запускаем медиа обработку для личного аккаунта
             self.logger.info("🎬 Запуск медиа обработки для личного аккаунта...")
-            self.logger.info("📁 Команда: meeting_automation_personal.py media --quality medium")
             
             if self.config_manager and self.config_manager.is_personal_enabled():
                 personal_config = self.config_manager.get_personal_config()
                 personal_folder = personal_config.get('local_drive_root', 'не указано')
                 self.logger.info(f"📁 Обрабатываемые папки: {personal_folder}")
+                
+                self.logger.info("🎥 Ищем видео файлы для обработки...")
+
+                # Устанавливаем правильный PATH для FFmpeg
+                env = os.environ.copy()
+                env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
+
+                personal_result = subprocess.run([
+                    sys.executable, "meeting_automation_universal.py", "media", "--account", "personal", "--quality", "medium"
+                ], capture_output=True, text=True, timeout=media_timeout, env=env)
             else:
                 self.logger.info("📁 Личный аккаунт отключен")
-            
-            self.logger.info("🎥 Ищем видео файлы для обработки...")
-            
-            # Устанавливаем правильный PATH для FFmpeg
-            env = os.environ.copy()
-            env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
-            
-            personal_result = subprocess.run([
-                sys.executable, "meeting_automation_personal.py", "media", "--quality", "medium"
-            ], capture_output=True, text=True, timeout=media_timeout, env=env)
+                personal_result = subprocess.CompletedProcess(
+                    args=[], returncode=0, stdout="", stderr=""
+                )
             
             if personal_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка личного аккаунта завершена успешно")

@@ -2,240 +2,215 @@
 # -*- coding: utf-8 -*-
 """
 Универсальный скрипт автоматизации встреч
-Запускает обработку для личного и рабочего аккаунтов
+Работает с единой конфигурацией .env для личного и рабочего аккаунтов
 """
 
 import os
 import sys
 import argparse
 import logging
-from datetime import datetime
 from pathlib import Path
+from dotenv import load_dotenv
 
-# Добавляем src в путь
-sys.path.insert(0, 'src')
+# Добавляем корневую директорию в путь для импортов
+sys.path.insert(0, str(Path(__file__).parent))
 
-# Настройка логирования
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('logs/universal_automation.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
+from src.config_manager import ConfigManager
+from src.calendar_processor import CalendarProcessor
+from src.drive_processor import DriveProcessor
+from src.media_processor import MediaProcessor
+from src.notion_processor import NotionProcessor
 
-def run_personal_automation(command: str, additional_args: list = None):
-    """Запустить автоматизацию для личного аккаунта."""
+def setup_logging():
+    """Настройка логирования."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler('logs/universal_automation.log')
+        ]
+    )
+    return logging.getLogger(__name__)
+
+def load_environment():
+    """Загрузка переменных окружения."""
+    logger = logging.getLogger(__name__)
+    
+    # Загружаем .env файл
+    if os.path.exists('.env'):
+        load_dotenv('.env')
+        logger.info("✅ Загружен основной конфиг: .env")
+    else:
+        logger.error("❌ Файл .env не найден")
+        return None
+    
+    # Инициализируем ConfigManager
     try:
-        logger.info("👤 Запуск автоматизации для личного аккаунта...")
-        
-        # Проверяем существование скрипта
-        script_path = "meeting_automation_personal.py"
-        if not os.path.exists(script_path):
-            logger.error(f"❌ Скрипт не найден: {script_path}")
-            return False
-        
-        # Формируем команду
-        cmd = [sys.executable, script_path, command]
-        if additional_args:
-            cmd.extend(additional_args)
-        
-        # Запускаем скрипт
-        import subprocess
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            logger.info("✅ Личный аккаунт: обработка завершена успешно")
-            if result.stdout:
-                print("📤 Вывод личного аккаунта:")
-                print(result.stdout)
-            return True
-        else:
-            logger.error(f"❌ Личный аккаунт: ошибка выполнения")
-            if result.stderr:
-                logger.error(f"Ошибка: {result.stderr}")
-            return False
-            
+        config_manager = ConfigManager('.env')
+        logger.info("✅ ConfigManager инициализирован")
+        return config_manager
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска личного аккаунта: {e}")
-        return False
+        logger.error(f"❌ Ошибка инициализации ConfigManager: {e}")
+        return None
 
-def run_work_automation(command: str, additional_args: list = None):
-    """Запустить автоматизацию для рабочего аккаунта."""
+def process_account(account_type: str, config_manager: ConfigManager, logger: logging.Logger):
+    """Обработка указанного аккаунта."""
+    if account_type == 'personal':
+        if not config_manager.is_personal_enabled():
+            logger.info("⏭️ Личный аккаунт отключен в конфигурации")
+            return {"status": "skipped", "message": "Account disabled"}
+        
+        config = config_manager.get_personal_config()
+        logger.info("👤 Обрабатываю личный аккаунт...")
+        
+    elif account_type == 'work':
+        if not config_manager.is_work_enabled():
+            logger.info("⏭️ Рабочий аккаунт отключен в конфигурации")
+            return {"status": "skipped", "message": "Account disabled"}
+        
+        config = config_manager.get_work_config()
+        logger.info("🏢 Обрабатываю рабочий аккаунт...")
+        
+    else:
+        logger.error(f"❌ Неизвестный тип аккаунта: {account_type}")
+        return {"status": "error", "message": "Unknown account type"}
+    
     try:
-        logger.info("🏢 Запуск автоматизации для рабочего аккаунта...")
+        # Обработка календаря
+        calendar_processor = CalendarProcessor(config_manager, account_type)
+        calendar_result = calendar_processor.process_calendar()
+        logger.info(f"📅 Календарь обработан: {calendar_result}")
         
-        # Проверяем существование скрипта
-        script_path = "meeting_automation_work.py"
-        if not os.path.exists(script_path):
-            logger.error(f"❌ Скрипт не найден: {script_path}")
-            return False
+        # Обработка Google Drive
+        drive_processor = DriveProcessor(config_manager, account_type)
+        drive_result = drive_processor.process_drive()
+        logger.info(f"💾 Google Drive обработан: {drive_result}")
         
-        # Формируем команду
-        cmd = [sys.executable, script_path, command]
-        if additional_args:
-            cmd.extend(additional_args)
-        
-        # Запускаем скрипт
-        import subprocess
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        
-        if result.returncode == 0:
-            logger.info("✅ Рабочий аккаунт: обработка завершена успешно")
-            if result.stdout:
-                print("📤 Вывод рабочего аккаунта:")
-                print(result.stdout)
-            return True
+        # Обработка Notion
+        if config.get('notion_token') and config.get('notion_database_id'):
+            notion_processor = NotionProcessor(config_manager, account_type)
+            notion_result = notion_processor.process_notion()
+            logger.info(f"📝 Notion обработан: {notion_result}")
         else:
-            logger.error(f"❌ Рабочий аккаунт: ошибка выполнения")
-            if result.stderr:
-                logger.error(f"Ошибка: {result.stderr}")
-            return False
-            
+            logger.info("⏭️ Notion пропущен (токен или база данных не указаны)")
+        
+        return {"status": "success", "calendar": calendar_result, "drive": drive_result}
+        
     except Exception as e:
-        logger.error(f"❌ Ошибка запуска рабочего аккаунта: {e}")
-        return False
+        logger.error(f"❌ Ошибка обработки аккаунта {account_type}: {e}")
+        return {"status": "error", "message": str(e)}
 
-def check_configurations():
-    """Проверить конфигурации для обоих аккаунтов."""
-    logger.info("🔧 Проверка конфигураций...")
+def process_media(config_manager: ConfigManager, quality: str = 'medium', logger: logging.Logger = None):
+    """Обработка медиа файлов."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
     
-    configs = {
-        'personal': 'env.personal',
-        'work': 'env.work'
-    }
+    logger.info("🎬 Запуск обработки медиа файлов...")
     
-    status = {}
-    
-    for account, config_file in configs.items():
-        if os.path.exists(config_file):
-            logger.info(f"✅ {account.capitalize()}: конфигурация найдена")
-            status[account] = True
-        else:
-            logger.warning(f"⚠️ {account.capitalize()}: конфигурация не найдена ({config_file})")
-            status[account] = False
-    
-    return status
-
-def create_summary_report(personal_success: bool, work_success: bool) -> str:
-    """Создать сводный отчет о выполнении."""
-    report = "🔄 *СВОДНЫЙ ОТЧЕТ АВТОМАТИЗАЦИИ*\n"
-    report += f"⏰ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
-    
-    # Статус личного аккаунта
-    if personal_success:
-        report += "👤 *Личный аккаунт:* ✅ Успешно\n"
-    else:
-        report += "👤 *Личный аккаунт:* ❌ Ошибка\n"
-    
-    # Статус рабочего аккаунта
-    if work_success:
-        report += "🏢 *Рабочий аккаунт:* ✅ Успешно\n"
-    else:
-        report += "🏢 *Рабочий аккаунт:* ❌ Ошибка\n"
-    
-    # Общий статус
-    if personal_success and work_success:
-        report += "\n🎉 *Общий результат:* Все аккаунты обработаны успешно!"
-    elif personal_success or work_success:
-        report += "\n⚠️ *Общий результат:* Частично успешно"
-    else:
-        report += "\n❌ *Общий результат:* Все аккаунты завершились с ошибками"
-    
-    return report
+    try:
+        media_processor = MediaProcessor(config_manager)
+        
+        # Обрабатываем медиа для личного аккаунта
+        if config_manager.is_personal_enabled():
+            personal_config = config_manager.get_personal_config()
+            personal_folder = personal_config.get('local_drive_root')
+            if personal_folder and os.path.exists(personal_folder):
+                logger.info(f"👤 Обрабатываю медиа для личного аккаунта: {personal_folder}")
+                personal_result = media_processor.process_folder(personal_folder, quality)
+                logger.info(f"✅ Личный аккаунт: {personal_result}")
+            else:
+                logger.warning(f"⚠️ Папка личного аккаунта не найдена: {personal_folder}")
+        
+        # Обрабатываем медиа для рабочего аккаунта
+        if config_manager.is_work_enabled():
+            work_config = config_manager.get_work_config()
+            work_folder = work_config.get('local_drive_root')
+            if work_folder and os.path.exists(work_folder):
+                logger.info(f"🏢 Обрабатываю медиа для рабочего аккаунта: {work_folder}")
+                work_result = media_processor.process_folder(work_folder, quality)
+                logger.info(f"✅ Рабочий аккаунт: {work_result}")
+            else:
+                logger.warning(f"⚠️ Папка рабочего аккаунта не найдена: {work_folder}")
+        
+        logger.info("✅ Обработка медиа завершена")
+        return {"status": "success"}
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки медиа: {e}")
+        return {"status": "error", "message": str(e)}
 
 def main():
     """Основная функция."""
-    parser = argparse.ArgumentParser(description='Универсальная автоматизация встреч')
-    parser.add_argument('command', choices=['prepare', 'media', 'audio', 'test'], 
-                       help='Команда для выполнения')
-    parser.add_argument('--personal-only', action='store_true',
-                       help='Только личный аккаунт')
-    parser.add_argument('--work-only', action='store_true',
-                       help='Только рабочий аккаунт')
-    parser.add_argument('--skip-config-check', action='store_true',
-                       help='Пропустить проверку конфигураций')
-    parser.add_argument('--days', type=int, default=2,
-                       help='Количество дней для обработки календаря')
-    parser.add_argument('--verbose', action='store_true',
-                       help='Подробный режим логирования')
-    parser.add_argument('--config-only', action='store_true',
-                       help='Только проверка конфигурации')
-    parser.add_argument('--calendar-only', action='store_true',
-                       help='Только проверка календаря')
-    parser.add_argument('--drive-only', action='store_true',
-                       help='Только проверка Google Drive')
-    parser.add_argument('--quality', choices=['low', 'medium', 'high', 'ultra'], default='medium',
-                       help='Качество сжатия видео')
-    parser.add_argument('--output', choices=['json', 'txt', 'srt'], default='json',
-                       help='Формат вывода транскрипта (по умолчанию: json)')
+    parser = argparse.ArgumentParser(description='Универсальный скрипт автоматизации встреч')
+    parser.add_argument('action', choices=['calendar', 'drive', 'media', 'all'], 
+                       help='Действие для выполнения')
+    parser.add_argument('--account', choices=['personal', 'work', 'both'], default='both',
+                       help='Аккаунт для обработки (по умолчанию: both)')
+    parser.add_argument('--quality', choices=['low', 'medium', 'high'], default='medium',
+                       help='Качество медиа (по умолчанию: medium)')
+    parser.add_argument('--verbose', '-v', action='store_true',
+                       help='Подробный вывод')
     
     args = parser.parse_args()
     
-    logger.info("🚀 Запуск универсальной автоматизации встреч")
-    
-    # Проверяем конфигурации
-    if not args.skip_config_check:
-        config_status = check_configurations()
-        logger.info(f"📋 Статус конфигураций: {config_status}")
-    
-    # Определяем какие аккаунты запускать
-    run_personal = not args.work_only
-    run_work = not args.personal_only
-    
-    if args.personal_only:
-        logger.info("👤 Запуск только для личного аккаунта")
-    elif args.work_only:
-        logger.info("🏢 Запуск только для рабочего аккаунта")
-    else:
-        logger.info("🔄 Запуск для обоих аккаунтов")
-    
-    # Формируем дополнительные аргументы
-    additional_args = []
-    if args.days != 2:
-        additional_args.extend(['--days', str(args.days)])
+    # Настройка логирования
+    logger = setup_logging()
     if args.verbose:
-        additional_args.append('--verbose')
-    if args.config_only:
-        additional_args.append('--config-only')
-    if args.calendar_only:
-        additional_args.append('--calendar-only')
-    if args.drive_only:
-        additional_args.append('--drive-only')
-    if args.quality != 'medium':
-        additional_args.extend(['--quality', args.quality])
-    if args.output != 'json':
-        additional_args.extend(['--output', args.output])
+        logger.setLevel(logging.DEBUG)
     
-    # Запускаем автоматизацию
-    personal_success = False
-    work_success = False
+    logger.info("🚀 Запуск универсального скрипта автоматизации встреч")
     
-    if run_personal:
-        personal_success = run_personal_automation(args.command, additional_args)
+    # Загрузка конфигурации
+    config_manager = load_environment()
+    if not config_manager:
+        logger.error("❌ Не удалось загрузить конфигурацию")
+        sys.exit(1)
     
-    if run_work:
-        work_success = run_work_automation(args.command, additional_args)
+    # Проверка конфигурации
+    if not config_manager.validate_config():
+        logger.warning("⚠️ Конфигурация содержит ошибки")
     
-    # Создаем сводный отчет
-    if run_personal and run_work:
-        report = create_summary_report(personal_success, work_success)
-        print("\n" + "="*50)
-        print("📊 СВОДНЫЙ ОТЧЕТ:")
-        print("="*50)
-        print(report)
+    # Вывод информации о конфигурации
+    logger.info("📋 Конфигурация:")
+    logger.info(f"   👤 Личный аккаунт: {'включен' if config_manager.is_personal_enabled() else 'отключен'}")
+    logger.info(f"   🏢 Рабочий аккаунт: {'включен' if config_manager.is_work_enabled() else 'отключен'}")
+    
+    try:
+        if args.action == 'calendar':
+            # Обработка календарей
+            if args.account in ['personal', 'both'] and config_manager.is_personal_enabled():
+                process_account('personal', config_manager, logger)
+            if args.account in ['work', 'both'] and config_manager.is_work_enabled():
+                process_account('work', config_manager, logger)
+                
+        elif args.action == 'drive':
+            # Обработка Google Drive
+            if args.account in ['personal', 'both'] and config_manager.is_personal_enabled():
+                process_account('personal', config_manager, logger)
+            if args.account in ['work', 'both'] and config_manager.is_work_enabled():
+                process_account('work', config_manager, logger)
+                
+        elif args.action == 'media':
+            # Обработка медиа
+            process_media(config_manager, args.quality, logger)
+            
+        elif args.action == 'all':
+            # Полная обработка
+            if args.account in ['personal', 'both'] and config_manager.is_personal_enabled():
+                process_account('personal', config_manager, logger)
+            if args.account in ['work', 'both'] and config_manager.is_work_enabled():
+                process_account('work', config_manager, logger)
+            process_media(config_manager, args.quality, logger)
         
-        # Логируем результат
-        if personal_success and work_success:
-            logger.info("🎉 Все аккаунты обработаны успешно")
-        elif personal_success or work_success:
-            logger.warning("⚠️ Частично успешное выполнение")
-        else:
-            logger.error("❌ Все аккаунты завершились с ошибками")
-    
-    logger.info("🏁 Универсальная автоматизация завершена")
+        logger.info("✅ Все операции завершены успешно")
+        
+    except KeyboardInterrupt:
+        logger.info("🛑 Операция прервана пользователем")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
