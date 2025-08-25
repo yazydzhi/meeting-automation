@@ -214,9 +214,9 @@ class MeetingAutomationService:
         try:
             self.logger.info("👤 Запуск автоматизации для личного аккаунта...")
             
-            # Запускаем скрипт личного аккаунта
+            # Запускаем универсальный скрипт для личного аккаунта
             result = subprocess.run([
-                sys.executable, "meeting_automation_personal.py", "prepare"
+                sys.executable, "meeting_automation_universal.py", "calendar", "--account", "personal"
             ], capture_output=True, text=True, timeout=300)
             
             if result.returncode == 0:
@@ -240,9 +240,9 @@ class MeetingAutomationService:
         try:
             self.logger.info("🏢 Запуск автоматизации для рабочего аккаунта...")
             
-            # Запускаем скрипт рабочего аккаунта
+            # Запускаем универсальный скрипт для рабочего аккаунта
             result = subprocess.run([
-                sys.executable, "meeting_automation_work.py", "prepare"
+                sys.executable, "meeting_automation_universal.py", "calendar", "--account", "work"
             ], capture_output=True, text=True, timeout=300)
             
             if result.returncode == 0:
