@@ -8,12 +8,13 @@
 import os
 import sys
 import time
+import json
 import signal
 import logging
 import threading
 import subprocess
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 # Добавляем корневую директорию в путь для импортов
@@ -48,11 +49,179 @@ class MeetingAutomationService:
         # Проверяем и настраиваем PATH для ffmpeg
         self._setup_ffmpeg_path()
         
+        # Состояние для отслеживания изменений
+        self.previous_cycle_state = None
+        self.current_cycle_state = None
+        self.state_file_path = "data/service_state.json"
+        
+        # Создаем директорию для состояния
+        self._ensure_state_directory()
+        
         # Обработчики сигналов
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
         
         self.logger.info("🚀 Сервис автоматизации встреч инициализирован")
+    
+    def _ensure_state_directory(self):
+        """Создает директорию для сохранения состояния."""
+        try:
+            state_dir = Path(self.state_file_path).parent
+            state_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Не удалось создать директорию состояния: {e}")
+    
+    def _load_previous_state(self) -> Optional[Dict[str, Any]]:
+        """Загружает предыдущее состояние сервиса."""
+        try:
+            if os.path.exists(self.state_file_path):
+                with open(self.state_file_path, 'r', encoding='utf-8') as f:
+                    return json.load(f)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Не удалось загрузить предыдущее состояние: {e}")
+        return None
+    
+    def _save_current_state(self, state: Dict[str, Any]):
+        """Сохраняет текущее состояние сервиса."""
+        try:
+            with open(self.state_file_path, 'w', encoding='utf-8') as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.logger.warning(f"⚠️ Не удалось сохранить текущее состояние: {e}")
+    
+    def _create_cycle_state(self, personal_stats: Dict[str, Any], work_stats: Dict[str, Any], 
+                           media_stats: Dict[str, Any], transcription_stats: Dict[str, Any], 
+                           notion_stats: Dict[str, Any]) -> Dict[str, Any]:
+        """Создает состояние текущего цикла для сравнения."""
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "personal_account": {
+                "status": personal_stats.get("status", "unknown"),
+                "has_changes": personal_stats.get("status") == "success" and personal_stats.get("output", "")
+            },
+            "work_account": {
+                "status": work_stats.get("status", "unknown"),
+                "has_changes": work_stats.get("status") == "success" and work_stats.get("output", "")
+            },
+            "media_processing": {
+                "processed": media_stats.get("processed", 0),
+                "synced": media_stats.get("synced", 0),
+                "errors": media_stats.get("errors", 0),
+                "has_changes": (media_stats.get("processed", 0) > 0 or 
+                               media_stats.get("synced", 0) > 0 or 
+                               media_stats.get("errors", 0) > 0)
+            },
+            "transcription": {
+                "status": transcription_stats.get("status", "unknown"),
+                "processed": transcription_stats.get("processed", 0),
+                "errors": transcription_stats.get("errors", 0),
+                "has_changes": (transcription_stats.get("processed", 0) > 0 or 
+                               transcription_stats.get("errors", 0) > 0)
+            },
+            "notion_sync": {
+                "status": notion_stats.get("status", "unknown"),
+                "synced": notion_stats.get("synced", 0),
+                "errors": notion_stats.get("errors", 0),
+                "has_changes": (notion_stats.get("synced", 0) > 0 or 
+                               notion_stats.get("errors", 0) > 0)
+            }
+        }
+    
+    def _has_significant_changes(self, current_state: Dict[str, Any], previous_state: Optional[Dict[str, Any]]) -> bool:
+        """Проверяет, есть ли значимые изменения для отправки уведомления."""
+        if not previous_state:
+            return True  # Первый запуск - отправляем уведомление
+        
+        # Проверяем изменения в медиа обработке
+        if (current_state["media_processing"]["has_changes"] != previous_state["media_processing"]["has_changes"] or
+            current_state["media_processing"]["processed"] != previous_state["media_processing"]["processed"] or
+            current_state["media_processing"]["errors"] != previous_state["media_processing"]["errors"]):
+            return True
+        
+        # Проверяем изменения в транскрипции
+        if (current_state["transcription"]["has_changes"] != previous_state["transcription"]["has_changes"] or
+            current_state["transcription"]["processed"] != previous_state["transcription"]["processed"] or
+            current_state["transcription"]["errors"] != previous_state["transcription"]["errors"]):
+            return True
+        
+        # Проверяем изменения в синхронизации с Notion
+        if (current_state["notion_sync"]["has_changes"] != previous_state["notion_sync"]["has_changes"] or
+            current_state["notion_sync"]["synced"] != previous_state["notion_sync"]["synced"] or
+            current_state["notion_sync"]["errors"] != previous_state["notion_sync"]["errors"]):
+            return True
+        
+        # Проверяем изменения в статусе аккаунтов
+        if (current_state["personal_account"]["status"] != previous_state["personal_account"]["status"] or
+            current_state["work_account"]["status"] != previous_state["work_account"]["status"]):
+            return True
+        
+        return False
+    
+    def _format_detailed_report(self, current_state: Dict[str, Any], previous_state: Optional[Dict[str, Any]]) -> str:
+        """Формирует детальный отчет об изменениях для Telegram."""
+        message = "🤖 <b>Отчет об изменениях в системе автоматизации встреч</b>\n\n"
+        
+        # Добавляем информацию о времени
+        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        message += f"⏰ <b>Время:</b> {current_time}\n\n"
+        
+        # Анализируем изменения
+        changes_detected = []
+        
+        # Медиа обработка
+        if current_state["media_processing"]["has_changes"]:
+            media_info = f"🎬 <b>Медиа обработка:</b>\n"
+            media_info += f"   • Обработано: {current_state['media_processing']['processed']}\n"
+            media_info += f"   • Синхронизировано: {current_state['media_processing']['synced']}\n"
+            if current_state["media_processing"]["errors"] > 0:
+                media_info += f"   • ❌ Ошибок: {current_state['media_processing']['errors']}\n"
+            changes_detected.append(media_info)
+        
+        # Транскрипция
+        if current_state["transcription"]["has_changes"]:
+            trans_info = f"🎤 <b>Транскрипция:</b>\n"
+            trans_info += f"   • Обработано: {current_state['transcription']['processed']}\n"
+            if current_state["transcription"]["errors"] > 0:
+                trans_info += f"   • ❌ Ошибок: {current_state['transcription']['errors']}\n"
+            changes_detected.append(trans_info)
+        
+        # Синхронизация с Notion
+        if current_state["notion_sync"]["has_changes"]:
+            notion_info = f"📝 <b>Синхронизация с Notion:</b>\n"
+            notion_info += f"   • Синхронизировано: {current_state['notion_sync']['synced']}\n"
+            if current_state["notion_sync"]["errors"] > 0:
+                notion_info += f"   • ❌ Ошибок: {current_state['notion_sync']['errors']}\n"
+            changes_detected.append(notion_info)
+        
+        # Статус аккаунтов
+        personal_status = "✅" if current_state["personal_account"]["status"] == "success" else "❌"
+        work_status = "✅" if current_state["work_account"]["status"] == "success" else "❌"
+        
+        account_info = f"👥 <b>Статус аккаунтов:</b>\n"
+        account_info += f"   • Личный: {personal_status} {current_state['personal_account']['status']}\n"
+        account_info += f"   • Рабочий: {work_status} {current_state['work_account']['status']}\n"
+        changes_detected.append(account_info)
+        
+        if changes_detected:
+            message += "🔄 <b>Обнаружены изменения:</b>\n\n"
+            message += "\n".join(changes_detected)
+        else:
+            message += "✅ <b>Изменений не обнаружено</b>\n"
+        
+        # Добавляем общую статистику
+        message += f"\n📊 <b>Общая статистика цикла:</b>\n"
+        message += f"   • Медиа: {current_state['media_processing']['processed']} обработано\n"
+        message += f"   • Транскрипция: {current_state['transcription']['processed']} обработано\n"
+        message += f"   • Notion: {current_state['notion_sync']['synced']} синхронизировано\n"
+        
+        total_errors = (current_state["media_processing"]["errors"] + 
+                       current_state["transcription"]["errors"] + 
+                       current_state["notion_sync"]["errors"])
+        
+        if total_errors > 0:
+            message += f"   • ❌ Всего ошибок: {total_errors}\n"
+        
+        return message
     
     def _setup_ffmpeg_path(self):
         """Настройка PATH для ffmpeg."""
@@ -547,10 +716,15 @@ class MeetingAutomationService:
             self.logger.error(f"❌ Критическая ошибка синхронизации с Notion: {e}")
             return {"status": "error", "synced": 0, "errors": 1, "details": [str(e)]}
     
-    def send_telegram_notifications(self) -> Dict[str, Any]:
-        """Отправка уведомлений в Telegram."""
+    def send_telegram_notifications(self, current_state: Dict[str, Any], previous_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        """Отправка умных уведомлений в Telegram только при наличии изменений."""
         try:
-            self.logger.info("📱 Начинаю отправку уведомлений в Telegram...")
+            # Проверяем, есть ли значимые изменения
+            if not self._has_significant_changes(current_state, previous_state):
+                self.logger.info("📱 Изменений не обнаружено - уведомление не отправляется")
+                return {"status": "skipped", "sent": 0, "errors": 0, "details": ["Изменений не обнаружено"]}
+            
+            self.logger.info("📱 Обнаружены изменения - отправляю уведомление в Telegram...")
             
             telegram_stats = {"status": "success", "sent": 0, "errors": 0, "details": []}
             
@@ -562,10 +736,9 @@ class MeetingAutomationService:
             if not telegram_config.get('bot_token') or not telegram_config.get('chat_id'):
                 return {"status": "error", "sent": 0, "errors": 1, "details": ["Настройки Telegram неполные"]}
             
-            # Отправляем уведомление о статусе системы
+            # Формируем детальный отчет об изменениях
             try:
-                # Формируем сообщение о статусе
-                status_message = self._format_status_message()
+                detailed_message = self._format_detailed_report(current_state, previous_state)
                 
                 # Отправляем через Python requests
                 try:
@@ -573,7 +746,7 @@ class MeetingAutomationService:
                     
                     message_data = {
                         "chat_id": telegram_config['chat_id'],
-                        "text": status_message,
+                        "text": detailed_message,
                         "parse_mode": "HTML"
                     }
                     
@@ -585,9 +758,10 @@ class MeetingAutomationService:
                     
                     if response.status_code == 200:
                         telegram_stats["sent"] = 1
-                        telegram_stats["details"].append("Уведомление отправлено успешно")
-                        self.logger.info("✅ Уведомление в Telegram отправлено")
+                        telegram_stats["details"].append("Детальный отчет об изменениях отправлен успешно")
+                        self.logger.info("✅ Детальный отчет в Telegram отправлен")
                     else:
+                        telegram_stats["errors"] = 1
                         telegram_stats["errors"] = 1
                         telegram_stats["details"].append(f"Ошибка отправки: HTTP {response.status_code}")
                         self.logger.error(f"❌ Ошибка отправки в Telegram: HTTP {response.status_code}")
@@ -599,7 +773,7 @@ class MeetingAutomationService:
                     
                     message_data = {
                         "chat_id": telegram_config['chat_id'],
-                        "text": status_message,
+                        "text": detailed_message,
                         "parse_mode": "HTML"
                     }
                     
@@ -612,8 +786,8 @@ class MeetingAutomationService:
                     
                     if curl_result.returncode == 0:
                         telegram_stats["sent"] = 1
-                        telegram_stats["details"].append("Уведомление отправлено успешно")
-                        self.logger.info("✅ Уведомление в Telegram отправлено")
+                        telegram_stats["details"].append("Детальный отчет об изменениях отправлен успешно")
+                        self.logger.info("✅ Детальный отчет в Telegram отправлен")
                     else:
                         telegram_stats["errors"] = 1
                         telegram_stats["details"].append(f"Ошибка отправки: {curl_result.stderr}")
@@ -818,6 +992,9 @@ class MeetingAutomationService:
         try:
             self.logger.info("🔄 Запуск цикла обработки...")
             
+            # Загружаем предыдущее состояние
+            self.previous_cycle_state = self._load_previous_state()
+            
             personal_stats = {"status": "skipped", "output": ""}
             work_stats = {"status": "skipped", "output": ""}
             
@@ -846,13 +1023,23 @@ class MeetingAutomationService:
             self.logger.info("📝 Запуск синхронизации с Notion...")
             notion_stats = self.sync_with_notion()
             
-            # 📱 ОТПРАВКА УВЕДОМЛЕНИЙ В TELEGRAM (каждый цикл)
-            self.logger.info("📱 Отправка уведомлений в Telegram...")
-            telegram_stats = self.send_telegram_notifications()
+            # Создаем текущее состояние цикла
+            self.current_cycle_state = self._create_cycle_state(
+                personal_stats, work_stats, media_stats, transcription_stats, notion_stats
+            )
+            
+            # 📱 ОТПРАВКА УВЕДОМЛЕНИЙ В TELEGRAM (только при изменениях)
+            self.logger.info("📱 Проверка необходимости отправки уведомлений в Telegram...")
+            telegram_stats = self.send_telegram_notifications(
+                self.current_cycle_state, self.previous_cycle_state
+            )
             
             # 📁 СОЗДАНИЕ ФАЙЛОВ СТАТУСА (каждый цикл)
             self.logger.info("📁 Создание файлов статуса...")
             self.create_status_files()
+            
+            # Сохраняем текущее состояние для следующего цикла
+            self._save_current_state(self.current_cycle_state)
             
             # Логируем результаты
             self.logger.info(f"📊 Результаты цикла:")
