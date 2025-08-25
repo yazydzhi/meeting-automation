@@ -39,8 +39,10 @@ class MeetingAutomationService:
         self.logger = self._setup_logging()
         
         # Конфигурация сервиса
+        self.config_manager = None
         self.check_interval = 300  # 5 минут между проверками
         self.media_check_interval = 1800  # 30 минут между проверками медиа
+        self.media_processing_timeout = 1800  # 30 минут для медиа обработки
         self.last_media_check = None
         
         # Проверяем и настраиваем PATH для ffmpeg
@@ -177,18 +179,31 @@ class MeetingAutomationService:
             if os.path.exists(self.config_path):
                 load_dotenv(self.config_path)
                 self.logger.info(f"✅ Загружен основной конфиг: {self.config_path}")
-            
-            # Проверяем наличие конфигураций для dual-account
-            personal_config = "env.personal"
-            work_config = "env.work"
-            
-            if os.path.exists(personal_config):
-                self.logger.info(f"✅ Найдена конфигурация личного аккаунта: {personal_config}")
-            
-            if os.path.exists(work_config):
-                self.logger.info(f"✅ Найдена конфигурация рабочего аккаунта: {work_config}")
-            
-            return True
+                
+                # Инициализируем ConfigManager
+                from src.config_manager import ConfigManager
+                self.config_manager = ConfigManager(self.config_path)
+                
+                # Обновляем интервалы из конфигурации
+                general_config = self.config_manager.get_general_config()
+                self.check_interval = general_config.get('service_check_interval', 300)
+                self.media_check_interval = general_config.get('service_media_interval', 1800)
+                self.media_processing_timeout = general_config.get('media_processing_timeout', 1800)
+                
+                self.logger.info(f"⏰ Интервал проверки: {self.check_interval} секунд")
+                self.logger.info(f"🎬 Интервал медиа: {self.media_check_interval} секунд")
+                self.logger.info(f"⏰ Таймаут медиа: {self.media_processing_timeout} секунд")
+                
+                # Проверяем конфигурацию
+                if self.config_manager.validate_config():
+                    self.logger.info("✅ Конфигурация валидна")
+                else:
+                    self.logger.warning("⚠️ Конфигурация содержит ошибки")
+                
+                return True
+            else:
+                self.logger.error(f"❌ Файл конфигурации не найден: {self.config_path}")
+                return False
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка загрузки окружения: {e}")
@@ -251,8 +266,8 @@ class MeetingAutomationService:
         try:
             self.logger.info("🎬 Проверка медиа файлов...")
             
-            # Увеличиваем таймаут для медиа обработки (может занимать много времени)
-            media_timeout = 1800  # 30 минут для медиа обработки
+            # Используем таймаут из конфигурации
+            media_timeout = self.media_processing_timeout
             self.logger.info(f"⏰ Таймаут медиа обработки: {media_timeout} секунд")
             
             # Проверяем, нужно ли обрабатывать медиа
@@ -267,7 +282,14 @@ class MeetingAutomationService:
             
             # Запускаем медиа обработку для рабочего аккаунта
             self.logger.info("🎬 Запуск медиа обработки для рабочего аккаунта...")
-            self.logger.info("📁 Обрабатываемые папки: /Users/azg/Downloads/02 - work@company.com")
+            
+            if self.config_manager and self.config_manager.is_work_enabled():
+                work_config = self.config_manager.get_work_config()
+                work_folder = work_config.get('local_drive_root', 'не указано')
+                self.logger.info(f"📁 Обрабатываемые папки: {work_folder}")
+            else:
+                self.logger.info("📁 Рабочий аккаунт отключен")
+            
             self.logger.info("🎥 Ищем видео файлы для обработки...")
             
             # Устанавливаем правильный PATH для FFmpeg
@@ -300,7 +322,14 @@ class MeetingAutomationService:
             # Запускаем медиа обработку для личного аккаунта
             self.logger.info("🎬 Запуск медиа обработки для личного аккаунта...")
             self.logger.info("📁 Команда: meeting_automation_personal.py media --quality medium")
-            self.logger.info("📁 Обрабатываемые папки: /Users/azg/Downloads/01 - yazydzhi@gmail.com")
+            
+            if self.config_manager and self.config_manager.is_personal_enabled():
+                personal_config = self.config_manager.get_personal_config()
+                personal_folder = personal_config.get('local_drive_root', 'не указано')
+                self.logger.info(f"📁 Обрабатываемые папки: {personal_folder}")
+            else:
+                self.logger.info("📁 Личный аккаунт отключен")
+            
             self.logger.info("🎥 Ищем видео файлы для обработки...")
             
             # Устанавливаем правильный PATH для FFmpeg
@@ -368,11 +397,22 @@ class MeetingAutomationService:
         try:
             self.logger.info("🔄 Запуск цикла обработки...")
             
+            personal_stats = {"status": "skipped", "output": ""}
+            work_stats = {"status": "skipped", "output": ""}
+            
             # Запускаем автоматизацию для личного аккаунта
-            personal_stats = self.run_personal_automation()
+            if self.config_manager and self.config_manager.is_personal_enabled():
+                self.logger.info("👤 Обрабатываю личный аккаунт...")
+                personal_stats = self.run_personal_automation()
+            else:
+                self.logger.info("⏭️ Личный аккаунт пропущен (отключен в конфигурации)")
             
             # Запускаем автоматизацию для рабочего аккаунта
-            work_stats = self.run_work_automation()
+            if self.config_manager and self.config_manager.is_work_enabled():
+                self.logger.info("🏢 Обрабатываю рабочий аккаунт...")
+                work_stats = self.run_work_automation()
+            else:
+                self.logger.info("⏭️ Рабочий аккаунт пропущен (отключен в конфигурации)")
             
             # Обрабатываем медиа файлы (только если прошло достаточно времени)
             media_stats = self.process_media_files()
