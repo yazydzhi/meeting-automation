@@ -474,19 +474,9 @@ class MeetingAutomationService:
             
             if work_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка рабочего аккаунта завершена успешно")
-                # Парсим результат для получения статистики
-                if "📄 Файлов синхронизировано:" in work_result.stdout:
-                    import re
-                    synced_match = re.search(r"📄 Файлов синхронизировано: (\d+)", work_result.stdout)
-                    processed_match = re.search(r"📁 Папок обработано: (\d+)", work_result.stdout)
-                    
-                    work_synced = int(synced_match.group(1)) if synced_match else 0
-                    work_processed = int(processed_match.group(1)) if processed_match else 0
-                    
-                    total_synced += work_synced
-                    total_processed += work_processed
-                else:
-                    self.logger.warning("⚠️ Не удалось получить статистику медиа обработки рабочего аккаунта")
+                # При локальной обработке статистика не нужна
+                # Просто считаем успешное выполнение
+                total_processed += 1
             else:
                 self.logger.error(f"❌ Ошибка медиа обработки рабочего аккаунта: {work_result.stderr}")
                 total_errors += 1
@@ -516,28 +506,11 @@ class MeetingAutomationService:
             
             if personal_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка личного аккаунта завершена успешно")
-                self.logger.info(f"📤 Вывод команды: {personal_result.stdout[:500]}...")
-                
-                # Парсим результат для получения статистики
-                if "📄 Файлов синхронизировано:" in personal_result.stdout:
-                    import re
-                    synced_match = re.search(r"📄 Файлов синхронизировано: (\d+)", personal_result.stdout)
-                    processed_match = re.search(r"📁 Папок обработано: (\d+)", personal_result.stdout)
-                    
-                    personal_synced = int(synced_match.group(1)) if synced_match else 0
-                    personal_processed = int(processed_match.group(1)) if processed_match else 0
-                    
-                    total_synced += personal_synced
-                    total_processed += personal_processed
-                    
-                    self.logger.info(f"📊 Статистика личного аккаунта: синхронизировано={personal_synced}, обработано={personal_processed}")
-                else:
-                    self.logger.warning("⚠️ Не удалось получить статистику медиа обработки личного аккаунта")
-                    self.logger.info(f"🔍 Поиск статистики в выводе: {personal_result.stdout}")
+                # При локальной обработке статистика не нужна
+                # Просто считаем успешное выполнение
+                total_processed += 1
             else:
                 self.logger.error(f"❌ Ошибка медиа обработки личного аккаунта: {personal_result.stderr}")
-                self.logger.error(f"📤 Полный вывод команды: {personal_result.stdout}")
-                self.logger.error(f"📤 Код возврата: {personal_result.returncode}")
                 total_errors += 1
             
             # Обновляем время последней проверки медиа
@@ -1034,7 +1007,7 @@ class MeetingAutomationService:
                 self.current_cycle_state, self.previous_cycle_state
             )
             
-            # 📁 СОЗДАНИЕ ФАЙЛОВ СТАТУСА (каждый цикл)
+            # �� СОЗДАНИЕ ФАЙЛОВ СТАТУСА (каждый цикл)
             self.logger.info("📁 Создание файлов статуса...")
             self.create_status_files()
             
