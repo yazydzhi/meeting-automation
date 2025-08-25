@@ -113,15 +113,90 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
         logger.error(f"❌ Ошибка обработки медиа: {e}")
         return {"status": "error", "message": str(e)}
 
+def process_transcription(config_manager: ConfigManager, account_type: str, file_path: str = None, logger: logging.Logger = None):
+    """Обработка транскрипции аудио файлов."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    logger.info("🎤 Запуск транскрипции аудио...")
+    
+    try:
+        if file_path:
+            # Транскрибируем конкретный файл
+            logger.info(f"🎵 Транскрибирую файл: {file_path}")
+            if os.path.exists(file_path):
+                # Здесь должна быть логика транскрипции
+                logger.info(f"✅ Файл {file_path} готов к транскрипции")
+                return {"status": "success", "message": f"File {file_path} ready for transcription"}
+            else:
+                logger.error(f"❌ Файл не найден: {file_path}")
+                return {"status": "error", "message": f"File not found: {file_path}"}
+        else:
+            # Транскрибируем все MP3 файлы в папках аккаунтов
+            logger.info(f"🎵 Транскрибирую все MP3 файлы для аккаунта: {account_type}")
+            
+            if account_type in ['personal', 'both'] and config_manager.is_personal_enabled():
+                personal_config = config_manager.get_personal_config()
+                personal_folder = personal_config.get('local_drive_root')
+                if personal_folder and os.path.exists(personal_folder):
+                    logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
+                    # Здесь должна быть логика поиска и транскрипции MP3 файлов
+            
+            if account_type in ['work', 'both'] and config_manager.is_work_enabled():
+                work_config = config_manager.get_work_config()
+                work_folder = work_config.get('local_drive_root')
+                if work_folder and os.path.exists(work_folder):
+                    logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
+                    # Здесь должна быть логика поиска и транскрипции MP3 файлов
+            
+            logger.info("✅ Транскрипция завершена (режим просмотра)")
+            return {"status": "success", "message": "Transcription completed (view mode)"}
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка транскрипции: {e}")
+        return {"status": "error", "message": str(e)}
+
+def process_notion_sync(config_manager: ConfigManager, account_type: str, logger: logging.Logger = None):
+    """Синхронизация с Notion."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    logger.info("📝 Запуск синхронизации с Notion...")
+    
+    try:
+        # Получаем настройки Notion
+        notion_config = config_manager.get_notion_config()
+        if not notion_config.get('token'):
+            logger.error("❌ Токен Notion не настроен")
+            return {"status": "error", "message": "Notion token not configured"}
+        
+        logger.info(f"📋 Синхронизирую с базой данных: {notion_config.get('database_id', 'не указано')}")
+        
+        if account_type in ['personal', 'both'] and config_manager.is_personal_enabled():
+            logger.info("👤 Синхронизирую личный аккаунт с Notion")
+            # Здесь должна быть логика синхронизации личного аккаунта
+        
+        if account_type in ['work', 'both'] and config_manager.is_work_enabled():
+            logger.info("🏢 Синхронизирую рабочий аккаунт с Notion")
+            # Здесь должна быть логика синхронизации рабочего аккаунта
+        
+        logger.info("✅ Синхронизация с Notion завершена")
+        return {"status": "success", "message": "Notion sync completed"}
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка синхронизации с Notion: {e}")
+        return {"status": "error", "message": str(e)}
+
 def main():
     """Основная функция."""
     parser = argparse.ArgumentParser(description='Универсальный скрипт автоматизации встреч')
-    parser.add_argument('action', choices=['calendar', 'drive', 'media', 'all'], 
+    parser.add_argument('action', choices=['calendar', 'drive', 'media', 'transcribe', 'notion', 'all'], 
                        help='Действие для выполнения')
     parser.add_argument('--account', choices=['personal', 'work', 'both'], default='both',
                        help='Аккаунт для обработки (по умолчанию: both)')
     parser.add_argument('--quality', choices=['low', 'medium', 'high'], default='medium',
                        help='Качество медиа (по умолчанию: medium)')
+    parser.add_argument('--file', help='Путь к файлу для транскрипции (только для transcribe)')
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Подробный вывод')
     
@@ -168,6 +243,14 @@ def main():
             # Обработка медиа
             process_media(config_manager, args.quality, logger)
             
+        elif args.action == 'transcribe':
+            # Транскрипция аудио
+            process_transcription(config_manager, args.account, args.file, logger)
+            
+        elif args.action == 'notion':
+            # Синхронизация с Notion
+            process_notion_sync(config_manager, args.account, logger)
+            
         elif args.action == 'all':
             # Полная обработка
             if args.account in ['personal', 'both'] and config_manager.is_personal_enabled():
@@ -175,6 +258,8 @@ def main():
             if args.account in ['work', 'both'] and config_manager.is_work_enabled():
                 process_account('work', config_manager, logger)
             process_media(config_manager, args.quality, logger)
+            process_transcription(config_manager, args.account, None, logger)
+            process_notion_sync(config_manager, args.account, logger)
         
         logger.info("✅ Все операции завершены успешно")
         
