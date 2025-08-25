@@ -36,20 +36,37 @@ meeting_automation/
 ### Основные параметры
 
 ```bash
+# ========================================
+# ОБЩИЕ НАСТРОЙКИ TELEGRAM И NOTION
+# ========================================
+
+# Telegram для уведомлений и отчетов
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
+TELEGRAM_CHAT_ID=your_telegram_chat_id_here
+
+# Notion для заметок о встречах
+NOTION_TOKEN=your_notion_api_token_here
+NOTION_DATABASE_ID=your_notion_database_id_here
+NOTION_DB_TITLE=Meeting Notes
+
+# ========================================
+# НАСТРОЙКИ АККАУНТОВ
+# ========================================
+
 # Тип аккаунта для обработки
 ACCOUNT_TYPE=both  # personal, work, both, none
 
 # Личный аккаунт
-PERSONAL_CALENDAR_ID=yazydzhi@gmail.com
-PERSONAL_LOCAL_DRIVE_ROOT=/Users/azg/Downloads/01 - yazydzhi@gmail.com
-PERSONAL_NOTION_TOKEN=your_token
-PERSONAL_TELEGRAM_BOT_TOKEN=your_bot_token
+PERSONAL_CALENDAR_ID=your_personal_email@gmail.com
+PERSONAL_LOCAL_DRIVE_ROOT=/Users/username/personal_foldername
 
 # Рабочий аккаунт
-WORK_CALENDAR_ID=v.yazydzhi@cian.ru
-WORK_LOCAL_DRIVE_ROOT=/Users/azg/Downloads/02 - v.yazydzhi@cian.ru
-WORK_NOTION_TOKEN=your_token
-WORK_TELEGRAM_BOT_TOKEN=your_bot_token
+WORK_CALENDAR_ID=your_work_email@company.com
+WORK_LOCAL_DRIVE_ROOT=/Users/username/work_foldername
+
+# ========================================
+# МЕДИА И АНАЛИЗ
+# ========================================
 
 # Медиа обработка
 MEDIA_QUALITY=medium
