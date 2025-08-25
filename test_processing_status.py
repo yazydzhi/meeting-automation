@@ -65,7 +65,7 @@ def test_processing_status():
     print(f"✅ MP4 файл обработан (аудио): {status.is_file_processed(mp4_file, 'audio_extraction')}")
     
     # Показываем содержимое файла статуса
-    status_file = Path(test_folder) / '.processing_status.json'
+    status_file = Path(test_folder) / '📊 processing_status.json'
     if status_file.exists():
         print(f"\n📄 Содержимое файла статуса:")
         import json
