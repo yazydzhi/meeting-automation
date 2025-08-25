@@ -205,35 +205,72 @@ class MeetingAutomationService:
                 self.logger.info("⏰ Медиа обработка еще не требуется")
                 return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
             
+            total_processed = 0
+            total_synced = 0
+            total_errors = 0
+            
             # Запускаем медиа обработку для рабочего аккаунта
             self.logger.info("🎬 Запуск медиа обработки для рабочего аккаунта...")
-            result = subprocess.run([
+            work_result = subprocess.run([
                 sys.executable, "meeting_automation_work.py", "media", "--quality", "medium"
             ], capture_output=True, text=True, timeout=600)
             
-            if result.returncode == 0:
-                self.logger.info("✅ Медиа обработка завершена успешно")
-                # Обновляем время последней проверки медиа
-                self.last_media_check = current_time
+            if work_result.returncode == 0:
+                self.logger.info("✅ Медиа обработка рабочего аккаунта завершена успешно")
+                # Парсим результат для получения статистики
+                if "📄 Файлов синхронизировано:" in work_result.stdout:
+                    import re
+                    synced_match = re.search(r"📄 Файлов синхронизировано: (\d+)", work_result.stdout)
+                    processed_match = re.search(r"📁 Папок обработано: (\d+)", work_result.stdout)
+                    
+                    work_synced = int(synced_match.group(1)) if synced_match else 0
+                    work_processed = int(processed_match.group(1)) if processed_match else 0
+                    
+                    total_synced += work_synced
+                    total_processed += work_processed
+                else:
+                    self.logger.warning("⚠️ Не удалось получить статистику медиа обработки рабочего аккаунта")
+            else:
+                self.logger.error(f"❌ Ошибка медиа обработки рабочего аккаунта: {work_result.stderr}")
+                total_errors += 1
+            
+            # Запускаем медиа обработку для личного аккаунта
+            self.logger.info("🎬 Запуск медиа обработки для личного аккаунта...")
+            self.logger.info("📁 Команда: meeting_automation_personal.py media --quality medium")
+            personal_result = subprocess.run([
+                sys.executable, "meeting_automation_personal.py", "media", "--quality", "medium"
+            ], capture_output=True, text=True, timeout=600)
+            
+            if personal_result.returncode == 0:
+                self.logger.info("✅ Медиа обработка личного аккаунта завершена успешно")
+                self.logger.info(f"📤 Вывод команды: {personal_result.stdout[:500]}...")
                 
                 # Парсим результат для получения статистики
-                if "📄 Файлов синхронизировано:" in result.stdout:
-                    # Извлекаем количество обработанных файлов
+                if "📄 Файлов синхронизировано:" in personal_result.stdout:
                     import re
-                    synced_match = re.search(r"📄 Файлов синхронизировано: (\d+)", result.stdout)
-                    processed_match = re.search(r"📁 Папок обработано: (\d+)", result.stdout)
+                    synced_match = re.search(r"📄 Файлов синхронизировано: (\d+)", personal_result.stdout)
+                    processed_match = re.search(r"📁 Папок обработано: (\d+)", personal_result.stdout)
                     
-                    synced = int(synced_match.group(1)) if synced_match else 0
-                    processed = int(processed_match.group(1)) if processed_match else 0
+                    personal_synced = int(synced_match.group(1)) if synced_match else 0
+                    personal_processed = int(processed_match.group(1)) if processed_match else 0
                     
-                    return {"processed": processed, "synced": synced, "cleanup": 0, "errors": 0}
+                    total_synced += personal_synced
+                    total_processed += personal_processed
+                    
+                    self.logger.info(f"📊 Статистика личного аккаунта: синхронизировано={personal_synced}, обработано={personal_processed}")
                 else:
-                    return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+                    self.logger.warning("⚠️ Не удалось получить статистику медиа обработки личного аккаунта")
+                    self.logger.info(f"🔍 Поиск статистики в выводе: {personal_result.stdout}")
             else:
-                self.logger.error(f"❌ Ошибка медиа обработки: {result.stderr}")
-                # Обновляем время последней проверки медиа даже при ошибке
-                self.last_media_check = current_time
-                return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
+                self.logger.error(f"❌ Ошибка медиа обработки личного аккаунта: {personal_result.stderr}")
+                self.logger.error(f"📤 Полный вывод команды: {personal_result.stdout}")
+                self.logger.error(f"📤 Код возврата: {personal_result.returncode}")
+                total_errors += 1
+            
+            # Обновляем время последней проверки медиа
+            self.last_media_check = current_time
+            
+            return {"processed": total_processed, "synced": total_synced, "cleanup": 0, "errors": total_errors}
                 
         except subprocess.TimeoutExpired:
             self.logger.error("⏰ Медиа обработка превысила время выполнения")

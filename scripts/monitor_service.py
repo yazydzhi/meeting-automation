@@ -17,9 +17,20 @@ import json
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    from meeting_automation_personal_only import load_env_or_fail
-except ImportError:
-    print("❌ Не удалось импортировать модули проекта")
+    # Пытаемся импортировать из разных возможных мест
+    try:
+        from meeting_automation_personal_only import load_env_or_fail
+    except ImportError:
+        try:
+            from src.config_manager import ConfigManager
+            def load_env_or_fail():
+                config = ConfigManager()
+                return config.config
+        except ImportError:
+            print("❌ Не удалось импортировать модули проекта")
+            sys.exit(1)
+except Exception as e:
+    print(f"❌ Ошибка импорта: {e}")
     sys.exit(1)
 
 
