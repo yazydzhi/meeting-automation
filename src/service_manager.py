@@ -211,9 +211,14 @@ class MeetingAutomationService:
             
             # Запускаем медиа обработку для рабочего аккаунта
             self.logger.info("🎬 Запуск медиа обработки для рабочего аккаунта...")
+            
+            # Устанавливаем правильный PATH для FFmpeg
+            env = os.environ.copy()
+            env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
+            
             work_result = subprocess.run([
                 sys.executable, "meeting_automation_work.py", "media", "--quality", "medium"
-            ], capture_output=True, text=True, timeout=600)
+            ], capture_output=True, text=True, timeout=600, env=env)
             
             if work_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка рабочего аккаунта завершена успешно")
@@ -237,9 +242,14 @@ class MeetingAutomationService:
             # Запускаем медиа обработку для личного аккаунта
             self.logger.info("🎬 Запуск медиа обработки для личного аккаунта...")
             self.logger.info("📁 Команда: meeting_automation_personal.py media --quality medium")
+            
+            # Устанавливаем правильный PATH для FFmpeg
+            env = os.environ.copy()
+            env['PATH'] = f"/opt/homebrew/bin:{env.get('PATH', '')}"
+            
             personal_result = subprocess.run([
                 sys.executable, "meeting_automation_personal.py", "media", "--quality", "medium"
-            ], capture_output=True, text=True, timeout=600)
+            ], capture_output=True, text=True, timeout=600, env=env)
             
             if personal_result.returncode == 0:
                 self.logger.info("✅ Медиа обработка личного аккаунта завершена успешно")
