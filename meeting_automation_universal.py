@@ -9,6 +9,9 @@ import sys
 import argparse
 import logging
 from pathlib import Path
+import subprocess
+from datetime import datetime, timedelta
+from typing import List, Dict, Any
 
 # Добавляем путь к src для импорта модулей
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
@@ -19,6 +22,10 @@ try:
     from media_processor import MediaProcessor
     from notion_api import NotionAPI
     from transcript_analyzer import TranscriptAnalyzer
+    from telegram_api import TelegramAPI
+    from calendar_alternatives import get_calendar_provider, CalendarEvent
+    from drive_alternatives import get_drive_provider, DriveFile
+    from notion_templates import create_page_with_template
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     print("Убедитесь, что все модули установлены")
@@ -57,8 +64,28 @@ def process_account(config_manager: ConfigManager, account_type: str, logger: lo
         if account_type == 'personal':
             if config_manager.is_personal_enabled():
                 logger.info("👤 Обрабатываю личный аккаунт")
-                # Здесь будет логика обработки личного аккаунта
-                return {"status": "success", "message": "Personal account processed"}
+                # Получаем провайдер календаря
+                calendar_provider = get_calendar_provider(
+                    config_manager.get_calendar_provider_type('personal'),
+                    **config_manager.get_calendar_provider_config('personal')
+                )
+                
+                if not calendar_provider:
+                    logger.error("❌ Не удалось получить провайдер календаря")
+                    return {"status": "error", "message": "Failed to get calendar provider"}
+                
+                # Получаем провайдер диска
+                drive_provider = get_drive_provider(
+                    config_manager.get_drive_provider_type('personal'),
+                    **config_manager.get_drive_provider_config('personal')
+                )
+                
+                if not drive_provider:
+                    logger.warning("⚠️ Провайдер диска недоступен")
+                
+                # Обрабатываем календарные события
+                result = process_calendar_events(calendar_provider, drive_provider, account_type, config_manager, logger)
+                return result
             else:
                 logger.warning("⚠️ Личный аккаунт отключен")
                 return {"status": "skipped", "message": "Personal account disabled"}
@@ -66,8 +93,28 @@ def process_account(config_manager: ConfigManager, account_type: str, logger: lo
         elif account_type == 'work':
             if config_manager.is_work_enabled():
                 logger.info("🏢 Обрабатываю рабочий аккаунт")
-                # Здесь будет логика обработки рабочего аккаунта
-                return {"status": "success", "message": "Work account processed"}
+                # Получаем провайдер календаря
+                calendar_provider = get_calendar_provider(
+                    config_manager.get_calendar_provider_type('work'),
+                    **config_manager.get_calendar_provider_config('work')
+                )
+                
+                if not calendar_provider:
+                    logger.error("❌ Не удалось получить провайдер календаря")
+                    return {"status": "error", "message": "Failed to get calendar provider"}
+                
+                # Получаем провайдер диска
+                drive_provider = get_drive_provider(
+                    config_manager.get_drive_provider_type('work'),
+                    **config_manager.get_drive_provider_config('work')
+                )
+                
+                if not drive_provider:
+                    logger.warning("⚠️ Провайдер диска недоступен")
+                
+                # Обрабатываем календарные события
+                result = process_calendar_events(calendar_provider, drive_provider, account_type, config_manager, logger)
+                return result
             else:
                 logger.warning("⚠️ Рабочий аккаунт отключен")
                 return {"status": "skipped", "message": "Work account disabled"}
@@ -92,6 +139,258 @@ def process_account(config_manager: ConfigManager, account_type: str, logger: lo
         logger.error(f"❌ Ошибка обработки аккаунта {account_type}: {e}")
         return {"status": "error", "message": str(e)}
 
+def process_calendar_events(calendar_provider, drive_provider, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> Dict[str, Any]:
+    """Обработка календарных событий и создание папок встреч."""
+    try:
+        logger.info(f"📅 Начинаю обработку календаря для {account_type} аккаунта...")
+        
+        # Получаем события на 2 дня вперед
+        days = 2
+        today = datetime.now().date()
+        start_date = datetime.combine(today, datetime.min.time())
+        end_date = start_date + timedelta(days=days)
+        
+        events = calendar_provider.get_events(start_date, end_date)
+        logger.info(f"📅 Найдено событий: {len(events)}")
+        
+        # Фильтруем события
+        filtered_events, excluded_events = filter_events(events, account_type, config_manager, logger)
+        logger.info(f"✅ Отфильтровано событий: {len(filtered_events)}")
+        logger.info(f"⏭️ Исключено событий: {len(excluded_events)}")
+        
+        # Обрабатываем события
+        processed_events = 0
+        processed_details = []
+        
+        for event in filtered_events:
+            try:
+                result = process_event(event, drive_provider, account_type, config_manager, logger)
+                processed_details.append(result)
+                processed_events += 1
+                
+                # Выводим информацию о событии
+                logger.info(f"✅ Обработано: {event.title} | {event.start.strftime('%H:%M')} | Участники: {len(event.attendees)}")
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки события {event.title}: {e}")
+        
+        # Статистика
+        excluded_count = len(excluded_events)
+        
+        result = {
+            'status': 'success',
+            'processed': processed_events,
+            'excluded': excluded_count,
+            'errors': len(events) - processed_events - excluded_count,
+            'details': processed_details,
+            'excluded_details': excluded_events
+        }
+        
+        logger.info(f"📊 Статистика обработки: обработано {processed_events}, исключено {excluded_count}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
+        return {'status': 'error', 'processed': 0, 'excluded': 0, 'errors': 1, 'details': [str(e)]}
+
+def filter_events(events: List[CalendarEvent], account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> tuple[List[CalendarEvent], List[Dict[str, Any]]]:
+    """Фильтрация событий календаря."""
+    filtered_events = []
+    excluded_events = []
+    
+    # Загружаем список исключений
+    exclusions = _load_exclusions(account_type, config_manager, logger)
+    
+    for event in events:
+        # Исключаем события по ключевым словам
+        is_excluded = False
+        matched_keywords = []
+        
+        for keyword in exclusions:
+            if keyword.lower() in event.title.lower():
+                is_excluded = True
+                matched_keywords.append(keyword)
+        
+        if is_excluded:
+            logger.info(f"⏭️ Исключено событие: {event.title}")
+            excluded_events.append({
+                'title': event.title,
+                'start': event.start,
+                'end': event.end,
+                'reason': 'Исключено по ключевому слову',
+                'keywords': matched_keywords
+            })
+            continue
+        
+        # Все остальные события считаем подходящими
+        filtered_events.append(event)
+        logger.info(f"✅ Добавлено событие: {event.title}")
+    
+    return filtered_events, excluded_events
+
+def _load_exclusions(account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> List[str]:
+    """Загрузка списка исключений для фильтрации событий."""
+    try:
+        # Определяем путь к файлу исключений в зависимости от типа аккаунта
+        exclusions_file = Path(f"config/{account_type}_exclusions.txt")
+        
+        if not exclusions_file.exists():
+            logger.warning(f"⚠️ Файл исключений не найден: {exclusions_file}")
+            # Возвращаем базовый список по умолчанию
+            if account_type == 'personal':
+                return ['День рождения', 'Дела', 'Личное', 'Personal', 'Отпуск']
+            else:
+                return ['Обед', 'Перерыв', 'Отгул', 'Больничный', 'Отпуск']
+        
+        exclusions = []
+        with open(exclusions_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                # Игнорируем пустые строки и комментарии
+                if line and not line.startswith('#'):
+                    exclusions.append(line)
+        
+        logger.info(f"📋 Загружено {len(exclusions)} исключений из {exclusions_file}")
+        return exclusions
+    except Exception as e:
+        logger.error(f"❌ Ошибка загрузки исключений: {e}")
+        # Возвращаем базовый список по умолчанию
+        if account_type == 'personal':
+            return ['День рождения', 'Дела', 'Личное', 'Personal', 'Отпуск']
+        else:
+            return ['Обед', 'Перерыв', 'Отгул', 'Больничный', 'Отпуск']
+
+def process_event(event: CalendarEvent, drive_provider, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> Dict[str, Any]:
+    """Обработка события календаря и создание папки встречи."""
+    try:
+        logger.info(f"🔄 Обрабатываю событие: {event.title}")
+        
+        # Форматируем название папки
+        folder_name = format_folder_name(event, account_type)
+        
+        # Проверяем существование папки
+        if drive_provider and drive_provider.file_exists(folder_name):
+            logger.info(f"📁 Папка уже существует: {folder_name}")
+            folder_created = False
+        else:
+            # Создаем папку
+            if drive_provider:
+                folder_id = drive_provider.create_folder(folder_name)
+                if folder_id:
+                    logger.info(f"✅ Создана папка: {folder_name}")
+                    folder_created = True
+                else:
+                    logger.error(f"❌ Не удалось создать папку: {folder_name}")
+                    folder_created = False
+            else:
+                logger.warning("⚠️ Провайдер диска недоступен")
+                folder_created = False
+        
+        # Создаем страницу в Notion
+        folder_link = f"file://{folder_name}" if folder_created else ""
+        notion_page_id = create_notion_meeting_record(event, folder_link, account_type, config_manager, logger)
+        
+        # Формируем результат
+        result = {
+            'title': event.title,
+            'start': event.start,
+            'end': event.end,
+            'attendees_count': len(event.attendees),
+            'has_meeting_link': bool(event.meeting_link),
+            'drive_folder_created': folder_created,
+            'notion_page_id': notion_page_id,
+            'drive_folder_link': folder_link
+        }
+        
+        logger.info(f"✅ Событие обработано: {event.title}")
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки события {event.title}: {e}")
+        return {
+            'title': event.title,
+            'start': event.start,
+            'end': event.end,
+            'attendees_count': 0,
+            'has_meeting_link': False,
+            'drive_folder_created': False,
+            'notion_page_id': '',
+            'drive_folder_link': '',
+            'error': str(e)
+        }
+
+def format_folder_name(event: CalendarEvent, account_type: str) -> str:
+    """Форматирование названия папки для встречи."""
+    start_time = event.start
+    title = event.title
+    
+    # Формат: YYYY-MM-DD hh-mm Название встречи
+    folder_name = f"{start_time.strftime('%Y-%m-%d %H-%M')} {title}"
+    
+    # Очищаем название от недопустимых символов
+    folder_name = folder_name.replace('/', '-').replace('\\', '-').replace(':', '-')
+    folder_name = folder_name.replace('*', '').replace('?', '').replace('"', '').replace('<', '').replace('>', '').replace('|', '')
+    
+    return folder_name
+
+def create_notion_meeting_record(event: CalendarEvent, folder_link: str, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> str:
+    """Создание записи в Notion для встречи."""
+    try:
+        # Загружаем шаблон
+        template_path = "templates/meeting_page_template.json"
+        if not os.path.exists(template_path):
+            logger.error(f"❌ Шаблон не найден: {template_path}")
+            return ""
+        
+        with open(template_path, 'r', encoding='utf-8') as f:
+            import json
+            template = json.load(f)
+        
+        # Заполняем шаблон данными события
+        template_data = {
+            "title": event.title,
+            "start_time": event.start.strftime('%H:%M'),
+            "end_time": event.end.strftime('%H:%M'),
+            "date": event.start.strftime('%Y-%m-%d'),
+            "description": event.description,
+            "location": event.location,
+            "attendees": event.attendees,
+            "meeting_link": event.meeting_link,
+            "folder_link": folder_link,
+            "calendar_source": event.calendar_source,
+            "account_type": account_type
+        }
+        
+        # Получаем настройки Notion
+        notion_config = config_manager.get_notion_config()
+        notion_token = notion_config.get('token')
+        database_id = notion_config.get('database_id')
+        
+        if not notion_token or not database_id:
+            logger.error("❌ Не настроены Notion токен или ID базы данных")
+            return ""
+        
+        # Импортируем функцию создания страницы
+        from notion_templates import create_page_with_template
+        
+        page_id = create_page_with_template(
+            notion_token, 
+            database_id, 
+            template, 
+            template_data
+        )
+        
+        if page_id:
+            logger.info(f"✅ Создана страница в Notion: {page_id}")
+            return page_id
+        else:
+            logger.error("❌ Не удалось создать страницу в Notion")
+            return ""
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка создания страницы в Notion: {e}")
+        return ""
+
 def process_media(config_manager: ConfigManager, quality: str = 'medium', logger: logging.Logger = None):
     """Обработка медиа файлов."""
     if logger is None:
@@ -109,35 +408,10 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
             personal_folder = personal_config.get('local_drive_root')
             if personal_folder and os.path.exists(personal_folder):
                 logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
-                # Проверяем наличие видео файлов
-                video_files = []
-                for root, dirs, files in os.walk(personal_folder):
-                    for file in files:
-                        if file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
-                            video_files.append(os.path.join(root, file))
-                
-                if video_files:
-                    logger.info(f"🎥 Найдено {len(video_files)} видео файлов в личном аккаунте")
-                    # Проверяем, какие файлы уже обработаны
-                    processed_count = 0
-                    for video_file in video_files:
-                        compressed_file = video_file.replace('.mp4', '_compressed.mp4').replace('.avi', '_compressed.mp4').replace('.mov', '_compressed.mp4').replace('.mkv', '_compressed.mp4')
-                        if os.path.exists(compressed_file):
-                            processed_count += 1
-                    
-                    personal_result = {
-                        "status": "success", 
-                        "folder": personal_folder, 
-                        "processed": processed_count, 
-                        "synced": len(video_files),
-                        "total_videos": len(video_files)
-                    }
-                    total_processed += processed_count
-                    total_synced += len(video_files)
-                else:
-                    personal_result = {"status": "success", "folder": personal_folder, "processed": 0, "synced": 0, "total_videos": 0}
-                
+                personal_result = _process_folder_media(personal_folder, "personal", quality, logger)
                 results.append(personal_result)
+                total_processed += personal_result.get("processed", 0)
+                total_synced += personal_result.get("synced", 0)
             else:
                 logger.warning(f"⚠️ Папка личного аккаунта не найдена: {personal_folder}")
         
@@ -146,35 +420,10 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
             work_folder = work_config.get('local_drive_root')
             if work_folder and os.path.exists(work_folder):
                 logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
-                # Проверяем наличие видео файлов
-                video_files = []
-                for root, dirs, files in os.walk(work_folder):
-                    for file in files:
-                        if file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
-                            video_files.append(os.path.join(root, file))
-                
-                if video_files:
-                    logger.info(f"🎥 Найдено {len(video_files)} видео файлов в рабочем аккаунте")
-                    # Проверяем, какие файлы уже обработаны
-                    processed_count = 0
-                    for video_file in video_files:
-                        compressed_file = video_file.replace('.mp4', '_compressed.mp4').replace('.avi', '_compressed.mp4').replace('.mov', '_compressed.mp4').replace('.mkv', '_compressed.mp4')
-                        if os.path.exists(compressed_file):
-                            processed_count += 1
-                    
-                    work_result = {
-                        "status": "success", 
-                        "folder": work_folder, 
-                        "processed": processed_count, 
-                        "synced": len(video_files),
-                        "total_videos": len(video_files)
-                    }
-                    total_processed += processed_count
-                    total_synced += len(video_files)
-                else:
-                    work_result = {"status": "success", "folder": work_folder, "processed": 0, "synced": 0, "total_videos": 0}
-                
+                work_result = _process_folder_media(work_folder, "work", quality, logger)
                 results.append(work_result)
+                total_processed += work_result.get("processed", 0)
+                total_synced += work_result.get("synced", 0)
             else:
                 logger.warning(f"⚠️ Папка рабочего аккаунта не найдена: {work_folder}")
         
@@ -190,6 +439,149 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
     except Exception as e:
         logger.error(f"❌ Ошибка обработки медиа: {e}")
         return {"status": "error", "message": str(e)}
+
+def _process_folder_media(folder_path: str, account_type: str, quality: str, logger: logging.Logger):
+    """Обработка медиа файлов в конкретной папке."""
+    try:
+        result = {"status": "success", "folder": folder_path, "processed": 0, "synced": 0, "total_videos": 0, "processed_files": []}
+        
+        # Ищем видео файлы
+        video_files = []
+        for root, dirs, files in os.walk(folder_path):
+            for file in files:
+                if file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                    # Исключаем уже сжатые файлы
+                    if 'compressed' not in file.lower():
+                        video_files.append(os.path.join(root, file))
+        
+        if not video_files:
+            logger.info(f"📁 В папке {folder_path} нет новых видео файлов для обработки")
+            return result
+        
+        logger.info(f"🎥 Найдено {len(video_files)} новых видео файлов для обработки")
+        result["total_videos"] = len(video_files)
+        
+        # Обрабатываем каждый видео файл
+        for video_file in video_files:
+            try:
+                logger.info(f"🎬 Обрабатываю видео: {os.path.basename(video_file)}")
+                
+                # Создаем имя для сжатого файла
+                base_name = os.path.splitext(video_file)[0]
+                compressed_video = f"{base_name}_compressed.mp4"
+                compressed_audio = f"{base_name}_compressed.mp3"
+                
+                # Сжимаем видео
+                video_success = _compress_video(video_file, compressed_video, quality, logger)
+                if video_success:
+                    result["processed"] += 1
+                    result["processed_files"].append({
+                        "file": os.path.basename(video_file),
+                        "type": "video",
+                        "output": compressed_video,
+                        "status": "success"
+                    })
+                    logger.info(f"✅ Видео сжато: {os.path.basename(compressed_video)}")
+                
+                # Извлекаем аудио
+                audio_success = _extract_audio(video_file, compressed_audio, logger)
+                if audio_success:
+                    result["processed"] += 1
+                    result["processed_files"].append({
+                        "file": os.path.basename(video_file),
+                        "type": "audio",
+                        "output": compressed_audio,
+                        "status": "success"
+                    })
+                    logger.info(f"✅ Аудио извлечено: {os.path.basename(compressed_audio)}")
+                
+                result["synced"] += 1
+                
+            except Exception as e:
+                logger.error(f"❌ Ошибка обработки {os.path.basename(video_file)}: {e}")
+                result["processed_files"].append({
+                    "file": os.path.basename(video_file),
+                    "type": "error",
+                    "error": str(e),
+                    "status": "error"
+                })
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка обработки папки {folder_path}: {e}")
+        return {"status": "error", "folder": folder_path, "processed": 0, "synced": 0, "total_videos": 0, "processed_files": [], "error": str(e)}
+
+def _compress_video(input_file: str, output_file: str, quality: str, logger: logging.Logger) -> bool:
+    """Сжатие видео файла через FFmpeg."""
+    try:
+        # Определяем параметры качества
+        quality_params = {
+            'low': ['-crf', '28', '-preset', 'fast'],
+            'medium': ['-crf', '23', '-preset', 'medium'],
+            'high': ['-crf', '18', '-preset', 'slow']
+        }
+        
+        params = quality_params.get(quality, quality_params['medium'])
+        
+        cmd = [
+            'ffmpeg', '-i', input_file,
+            '-c:v', 'libx264',
+            '-c:a', 'aac',
+            '-b:a', '128k'
+        ] + params + [
+            '-y',  # Перезаписывать существующие файлы
+            output_file
+        ]
+        
+        logger.info(f"🎬 Запуск FFmpeg: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 минут
+        
+        if result.returncode == 0:
+            logger.info(f"✅ Видео успешно сжато: {output_file}")
+            return True
+        else:
+            logger.error(f"❌ Ошибка сжатия видео: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏰ Таймаут сжатия видео: {input_file}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка сжатия видео {input_file}: {e}")
+        return False
+
+def _extract_audio(input_file: str, output_file: str, logger: logging.Logger) -> bool:
+    """Извлечение аудио из видео файла."""
+    try:
+        cmd = [
+            'ffmpeg', '-i', input_file,
+            '-vn',  # Без видео
+            '-c:a', 'mp3',
+            '-b:a', '128k',
+            '-ar', '44100',
+            '-y',  # Перезаписывать существующие файлы
+            output_file
+        ]
+        
+        logger.info(f"🎵 Извлечение аудио: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # 10 минут
+        
+        if result.returncode == 0:
+            logger.info(f"✅ Аудио успешно извлечено: {output_file}")
+            return True
+        else:
+            logger.error(f"❌ Ошибка извлечения аудио: {result.stderr}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏰ Таймаут извлечения аудио: {input_file}")
+        return False
+    except Exception as e:
+        logger.error(f"❌ Ошибка извлечения аудио {input_file}: {e}")
+        return False
 
 def process_transcription(config_manager: ConfigManager, account_type: str, file_path: str = None, logger: logging.Logger = None):
     """Обработка транскрипции аудио файлов."""
@@ -400,16 +792,57 @@ def _sync_folder_with_notion(notion_api: NotionAPI, folder_path: str, account_ty
     except Exception as e:
         return {"account": account_type, "folder": folder_path, "synced": 0, "errors": 1, "files": [], "error": str(e)}
 
+def process_notification(message: str, notification_type: str = "info", logger: logging.Logger = None):
+    """Отправка уведомлений в Telegram."""
+    if logger is None:
+        logger = logging.getLogger(__name__)
+    
+    logger.info("📱 Запуск отправки уведомления...")
+    
+    try:
+        # Получаем настройки Telegram
+        config_manager = ConfigManager()
+        telegram_config = config_manager.get_telegram_config()
+        
+        if not telegram_config.get('bot_token') or not telegram_config.get('chat_id'):
+            logger.error("❌ Telegram не настроен")
+            return {"status": "error", "message": "Telegram not configured"}
+        
+        # Инициализируем Telegram API
+        telegram_api = TelegramAPI(telegram_config)
+        
+        # Отправляем сообщение
+        if notification_type == "detailed":
+            # Для детальных отчетов используем Markdown
+            success = telegram_api.send_message(message, parse_mode="Markdown")
+        else:
+            # Для обычных уведомлений используем обычный текст
+            success = telegram_api.send_message(message)
+        
+        if success:
+            logger.info("✅ Уведомление отправлено успешно")
+            return {"status": "success", "message": "Notification sent successfully"}
+        else:
+            logger.error("❌ Не удалось отправить уведомление")
+            return {"status": "error", "message": "Failed to send notification"}
+            
+    except Exception as e:
+        logger.error(f"❌ Ошибка отправки уведомления: {e}")
+        return {"status": "error", "message": str(e)}
+
 def main():
     """Главная функция."""
     parser = argparse.ArgumentParser(description='Универсальный скрипт автоматизации встреч')
-    parser.add_argument('action', choices=['calendar', 'drive', 'media', 'transcribe', 'notion', 'all'],
+    parser.add_argument('action', choices=['calendar', 'drive', 'media', 'transcribe', 'notion', 'all', 'notify'],
                        help='Действие для выполнения')
     parser.add_argument('--account', choices=['personal', 'work', 'both'], default='both',
                        help='Тип аккаунта для обработки')
     parser.add_argument('--file', help='Путь к конкретному файлу для обработки')
     parser.add_argument('--quality', choices=['low', 'medium', 'high'], default='medium',
                        help='Качество обработки медиа')
+    parser.add_argument('--message', help='Сообщение для команды notify')
+    parser.add_argument('--notification_type', choices=['info', 'detailed'], default='info',
+                       help='Тип уведомления для команды notify')
     
     args = parser.parse_args()
     
@@ -434,12 +867,18 @@ def main():
             result = process_transcription(config_manager, args.account, args.file, logger)
         elif args.action == 'notion':
             result = process_notion_sync(config_manager, args.account, logger)
+        elif args.action == 'notify':
+            if not args.message:
+                logger.error("❌ Для команды notify необходимо указать --message")
+                return 1
+            
+            result = process_notification(args.message, args.notification_type, logger)
         elif args.action == 'all':
-            # Выполняем все действия последовательно
+            logger.info("🚀 Запуск всех процессов...")
             results = {}
             results['calendar'] = process_account(config_manager, args.account, logger)
             results['media'] = process_media(config_manager, args.quality, logger)
-            results['transcribe'] = process_transcription(config_manager, args.account, logger)
+            results['transcribe'] = process_transcription(config_manager, args.account, args.file, logger)
             results['notion'] = process_notion_sync(config_manager, args.account, logger)
             result = {"status": "success", "message": "All actions completed", "results": results}
         
