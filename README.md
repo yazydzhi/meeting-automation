@@ -242,6 +242,8 @@ python scripts/folder_status_monitor.py --save --telegram
         <string>300</string>
         <string>--media-interval</string>
         <string>1800</string>
+        <string>--log-level</string>
+        <string>INFO</string>
     </array>
     
     <key>WorkingDirectory</key>
@@ -322,7 +324,7 @@ Type=simple
 User=azg
 WorkingDirectory=/path/to/meeting_automation
 Environment=PATH=/path/to/meeting_automation/venv/bin
-ExecStart=/path/to/meeting_automation/venv/bin/python src/service_manager.py --interval 300 --media-interval 1800
+ExecStart=/path/to/meeting_automation/venv/bin/python src/service_manager.py --interval 300 --media-interval 1800 --log-level INFO
 Restart=always
 RestartSec=10
 

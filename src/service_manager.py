@@ -1426,13 +1426,18 @@ def main():
     parser.add_argument("--config", default=".env", help="Путь к файлу конфигурации")
     parser.add_argument("--interval", type=int, default=300, help="Интервал проверки в секундах")
     parser.add_argument("--media-interval", type=int, default=1800, help="Интервал медиа обработки в секундах")
+    parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+                        help="Уровень логирования (DEBUG, INFO, WARNING, ERROR, CRITICAL)")
     
     args = parser.parse_args()
     
     # Создаем и запускаем сервис
-    service = MeetingAutomationService(args.config)
-    service.interval = args.interval
-    service.media_check_interval = args.media_interval
+    service = MeetingAutomationService(
+        config_file=args.config,
+        interval=args.interval,
+        media_interval=args.media_interval,
+        log_level=args.log_level
+    )
     
     try:
         service.start()
