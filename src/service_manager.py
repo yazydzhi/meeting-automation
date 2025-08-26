@@ -223,6 +223,91 @@ class MeetingAutomationService:
         
         return message
     
+    def _format_detailed_report(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]) -> str:
+        """Формирование детального отчета для Telegram."""
+        try:
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            report = f"""🤖 *ДЕТАЛЬНЫЙ ОТЧЕТ ОБ ОБРАБОТКЕ*
+
+⏰ Время: {current_time}
+
+🔄 *ОБРАБОТАННЫЕ ФАЙЛЫ:*
+
+🎬 *МЕДИА ОБРАБОТКА:*
+"""
+            
+            # Добавляем детали медиа обработки
+            if media_stats.get("processed", 0) > 0:
+                report += f"   • Обработано: {media_stats.get('processed', 0)} файлов\n"
+                report += f"   • Найдено: {media_stats.get('synced', 0)} видео\n"
+                
+                # Добавляем детали по папкам
+                if "results" in media_stats:
+                    for result in media_stats["results"]:
+                        if result.get("processed_files"):
+                            report += f"\n📁 *{os.path.basename(result['folder'])}:*\n"
+                            for file_info in result["processed_files"]:
+                                if file_info.get("status") == "success":
+                                    report += f"   ✅ {file_info['file']} → {os.path.basename(file_info['output'])}\n"
+                                else:
+                                    report += f"   ❌ {file_info['file']}: {file_info.get('error', 'ошибка')}\n"
+            else:
+                report += "   • Новых видео для обработки не найдено\n"
+            
+            report += f"\n🎤 *ТРАНСКРИПЦИЯ:*\n"
+            
+            # Добавляем детали транскрипции
+            transcription_stats = getattr(self, 'last_transcription_stats', {})
+            if transcription_stats.get("processed", 0) > 0:
+                report += f"   • Обработано: {transcription_stats.get('processed', 0)} файлов\n"
+                
+                # Добавляем детали по файлам
+                if "details" in transcription_stats:
+                    for detail in transcription_stats["details"]:
+                        report += f"\n📁 *{os.path.basename(detail['folder'])}:*\n"
+                        for file_info in detail.get("files", []):
+                            if file_info.get("status") == "success":
+                                report += f"   ✅ {file_info['file']} → транскрипция создана\n"
+                            elif file_info.get("status") == "already_exists":
+                                report += f"   📄 {file_info['file']} → уже существует\n"
+                            else:
+                                report += f"   ❌ {file_info['file']}: {file_info.get('error', 'ошибка')}\n"
+            else:
+                report += "   • Новых аудио для транскрипции не найдено\n"
+            
+            report += f"\n📝 *NOTION СИНХРОНИЗАЦИЯ:*\n"
+            
+            # Добавляем детали Notion
+            notion_stats = getattr(self, 'last_notion_stats', {})
+            if notion_stats.get("synced", 0) > 0:
+                report += f"   • Синхронизировано: {notion_stats.get('synced', 0)} записей\n"
+                if "details" in notion_stats:
+                    for detail in notion_stats["details"]:
+                        report += f"   📋 {detail}\n"
+            else:
+                report += "   • Новых записей для синхронизации не найдено\n"
+            
+            report += f"\n👥 *СТАТУС АККАУНТОВ:*\n"
+            report += f"   • Личный: ✅ {calendar_stats.get('personal', {}).get('status', 'unknown')}\n"
+            report += f"   • Рабочий: ✅ {calendar_stats.get('work', {}).get('status', 'unknown')}\n"
+            
+            report += f"\n📊 *ОБЩАЯ СТАТИСТИКА:*\n"
+            report += f"   • Медиа: {media_stats.get('processed', 0)} обработано\n"
+            report += f"   • Транскрипция: {transcription_stats.get('processed', 0)} обработано\n"
+            report += f"   • Notion: {notion_stats.get('synced', 0)} синхронизировано\n"
+            
+            report += f"\n🔄 *Следующая проверка:* через 5 минут\n"
+            report += f"📱 *Уведомления:* автоматически\n"
+            report += f"🤖 *Система:* meeting_automation"
+            
+            return report
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка формирования детального отчета: {e}")
+            return f"❌ Ошибка формирования отчета: {str(e)}"
+    
     def _setup_ffmpeg_path(self):
         """Настройка PATH для ffmpeg."""
         try:
@@ -366,6 +451,8 @@ class MeetingAutomationService:
                 # Проверяем конфигурацию
                 if self.config_manager.validate_config():
                     self.logger.info("✅ Конфигурация валидна")
+                    # Логируем детальную конфигурацию
+                    self._log_configuration()
                 else:
                     self.logger.warning("⚠️ Конфигурация содержит ошибки")
                 
@@ -377,6 +464,66 @@ class MeetingAutomationService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка загрузки окружения: {e}")
             return False
+    
+    def _log_configuration(self):
+        """Детальное логирование параметров конфигурации."""
+        try:
+            self.logger.info("📋 ДЕТАЛЬНАЯ КОНФИГУРАЦИЯ СЕРВИСА:")
+            
+            # Общие параметры
+            general_config = self.config_manager.get_general_config()
+            self.logger.info("⚙️ Общие параметры:")
+            for key, value in general_config.items():
+                self.logger.info(f"   • {key}: {value}")
+            
+            # Статус аккаунтов
+            self.logger.info("👥 Статус аккаунтов:")
+            self.logger.info(f"   • Личный аккаунт: {'✅ Включен' if self.config_manager.is_personal_enabled() else '❌ Отключен'}")
+            self.logger.info(f"   • Рабочий аккаунт: {'✅ Включен' if self.config_manager.is_work_enabled() else '❌ Отключен'}")
+            
+            # Параметры личного аккаунта
+            if self.config_manager.is_personal_enabled():
+                personal_config = self.config_manager.get_personal_config()
+                self.logger.info("👤 Параметры личного аккаунта:")
+                self.logger.info(f"   • Провайдер календаря: {personal_config.get('calendar_provider', 'не указан')}")
+                self.logger.info(f"   • Провайдер диска: {personal_config.get('drive_provider', 'не указан')}")
+                self.logger.info(f"   • Локальная папка: {personal_config.get('local_drive_root', 'не указана')}")
+            
+            # Параметры рабочего аккаунта
+            if self.config_manager.is_work_enabled():
+                work_config = self.config_manager.get_work_config()
+                self.logger.info("🏢 Параметры рабочего аккаунта:")
+                self.logger.info(f"   • Провайдер календаря: {work_config.get('calendar_provider', 'не указан')}")
+                self.logger.info(f"   • Провайдер диска: {work_config.get('drive_provider', 'не указан')}")
+                self.logger.info(f"   • Локальная папка: {work_config.get('local_drive_root', 'не указана')}")
+            
+            # Параметры медиа
+            media_config = self.config_manager.get_media_config()
+            self.logger.info("🎬 Параметры медиа обработки:")
+            self.logger.info(f"   • Качество: {media_config.get('quality', 'medium')}")
+            self.logger.info(f"   • Формат: {media_config.get('output_format', 'mp4')}")
+            self.logger.info(f"   • Сжатие видео: {'✅ Включено' if media_config.get('video_compression', True) else '❌ Отключено'}")
+            
+            # Параметры транскрипции
+            whisper_config = self.config_manager.get_whisper_config()
+            self.logger.info("🎤 Параметры транскрипции:")
+            self.logger.info(f"   • Метод: {whisper_config.get('transcription_method', 'local')}")
+            self.logger.info(f"   • Модель: {whisper_config.get('whisper_model', 'base')}")
+            
+            # Параметры Notion
+            notion_config = self.config_manager.get_notion_config()
+            self.logger.info("📝 Параметры Notion:")
+            self.logger.info(f"   • Токен: {'✅ Настроен' if notion_config.get('token') else '❌ Не настроен'}")
+            self.logger.info(f"   • База данных: {'✅ Настроена' if notion_config.get('database_id') else '❌ Не настроена'}")
+            
+            # Параметры Telegram
+            telegram_config = self.config_manager.get_telegram_config()
+            self.logger.info("📱 Параметры Telegram:")
+            self.logger.info(f"   • Бот токен: {'✅ Настроен' if telegram_config.get('bot_token') else '❌ Не настроен'}")
+            self.logger.info(f"   • Чат ID: {'✅ Настроен' if telegram_config.get('chat_id') else '❌ Не настроен'}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка при логировании конфигурации: {e}")
     
     def run_personal_automation(self) -> Dict[str, Any]:
         """Запуск автоматизации для личного аккаунта."""
@@ -430,20 +577,19 @@ class MeetingAutomationService:
             self.logger.error(error_msg)
             return {"status": "error", "error": error_msg}
     
-    def process_media_files(self) -> Dict[str, int]:
+    def process_media_files(self) -> Dict[str, Any]:
         """Обработка медиа файлов."""
         try:
-            self.logger.info("🎬 Проверка медиа файлов...")
-            
-            # Используем таймаут из конфигурации
-            media_timeout = self.media_processing_timeout
-            self.logger.info(f"⏰ Таймаут медиа обработки: {media_timeout} секунд")
-            
-            # Проверяем, нужно ли обрабатывать медиа
             current_time = time.time()
-            if hasattr(self, 'last_media_check') and self.last_media_check is not None and current_time - self.last_media_check < self.media_check_interval:
+            
+            # Проверяем, нужно ли запускать медиа обработку
+            if hasattr(self, 'last_media_check') and (current_time - self.last_media_check) < self.media_check_interval:
                 self.logger.info("⏰ Медиа обработка еще не требуется")
                 return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 0}
+            
+            self.logger.info("🎬 Проверка медиа файлов...")
+            media_timeout = self.config_manager.get_media_config().get('processing_timeout', 1800)
+            self.logger.info(f"⏰ Таймаут медиа обработки: {media_timeout} секунд")
             
             total_processed = 0
             total_synced = 0
@@ -516,7 +662,45 @@ class MeetingAutomationService:
             # Обновляем время последней проверки медиа
             self.last_media_check = current_time
             
-            return {"processed": total_processed, "synced": total_synced, "cleanup": 0, "errors": total_errors}
+            # Сохраняем статистику для детальных отчетов
+            media_stats = {"processed": total_processed, "synced": total_synced, "cleanup": 0, "errors": total_errors}
+            
+            # Парсим результаты для детализации
+            try:
+                if work_result.returncode == 0 and work_result.stdout:
+                    import json
+                    # Ищем JSON в выводе
+                    lines = work_result.stdout.split('\n')
+                    for line in lines:
+                        if line.strip().startswith('{') and line.strip().endswith('}'):
+                            try:
+                                data = json.loads(line.strip())
+                                if 'results' in data:
+                                    media_stats['results'] = data['results']
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+                
+                if personal_result.returncode == 0 and personal_result.stdout:
+                    import json
+                    # Ищем JSON в выводе
+                    lines = personal_result.stdout.split('\n')
+                    for line in lines:
+                        if line.strip().startswith('{') and line.strip().endswith('}'):
+                            try:
+                                data = json.loads(line.strip())
+                                if 'results' in data:
+                                    if 'results' not in media_stats:
+                                        media_stats['results'] = []
+                                    media_stats['results'].extend(data['results'])
+                                    break
+                            except json.JSONDecodeError:
+                                continue
+                                
+            except Exception as e:
+                self.logger.warning(f"⚠️ Не удалось распарсить детали медиа обработки: {e}")
+            
+            return media_stats
                 
         except subprocess.TimeoutExpired:
             self.logger.error("⏰ Медиа обработка превысила время выполнения")
@@ -535,9 +719,40 @@ class MeetingAutomationService:
             return {"processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
     
     def send_telegram_notification(self, calendar_stats: Dict[str, Any], media_stats: Dict[str, Any]):
-        """Отправка уведомлений в Telegram (заглушка для совместимости)."""
-        # В новой системе уведомления отправляются из основных скриптов
-        self.logger.info("📱 Уведомления отправляются из основных скриптов")
+        """Отправка уведомлений в Telegram с детализацией."""
+        try:
+            if not self.config_manager:
+                self.logger.warning("⚠️ ConfigManager не инициализирован, уведомления не отправляются")
+                return
+            
+            telegram_config = self.config_manager.get_telegram_config()
+            if not telegram_config.get('bot_token') or not telegram_config.get('chat_id'):
+                self.logger.warning("⚠️ Telegram не настроен, уведомления не отправляются")
+                return
+            
+            # Формируем детальный отчет
+            report = self._format_detailed_report(calendar_stats, media_stats)
+            
+            # Отправляем в Telegram
+            self.logger.info("📱 Отправляю детальный отчет в Telegram...")
+            
+            # Используем универсальный скрипт для отправки
+            try:
+                notification_result = subprocess.run([
+                    sys.executable, "meeting_automation_universal.py", "notify", 
+                    "--message", report, "--type", "detailed"
+                ], capture_output=True, text=True, timeout=60)
+                
+                if notification_result.returncode == 0:
+                    self.logger.info("✅ Детальный отчет в Telegram отправлен")
+                else:
+                    self.logger.error(f"❌ Ошибка отправки в Telegram: {notification_result.stderr}")
+                    
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка отправки уведомления: {e}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка формирования уведомления: {e}")
     
     def process_audio_transcription(self) -> Dict[str, Any]:
         """Обработка транскрипции аудио файлов."""
@@ -546,34 +761,78 @@ class MeetingAutomationService:
             
             transcription_stats = {"status": "success", "processed": 0, "errors": 0, "details": []}
             
+            # Проверяем наличие аудио файлов перед запуском
+            has_audio_files = False
+            
             # Обрабатываем личный аккаунт
             if self.config_manager and self.config_manager.is_personal_enabled():
                 personal_config = self.config_manager.get_personal_config()
                 personal_folder = personal_config.get('local_drive_root')
                 if personal_folder and os.path.exists(personal_folder):
-                    self.logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
-                    personal_result = self._process_folder_transcription(personal_folder, "personal")
-                    transcription_stats["details"].append(personal_result)
-                    transcription_stats["processed"] += personal_result.get("processed", 0)
-                    transcription_stats["errors"] += personal_result.get("errors", 0)
+                    self.logger.info(f"👤 Проверка аудио файлов в папке личного аккаунта: {personal_folder}")
+                    personal_audio_files = self._count_audio_files(personal_folder)
+                    if personal_audio_files > 0:
+                        self.logger.info(f"🎵 Найдено {personal_audio_files} аудио файлов в личном аккаунте")
+                        has_audio_files = True
+                        self.logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
+                        personal_result = self._process_folder_transcription(personal_folder, "personal")
+                        transcription_stats["details"].append(personal_result)
+                        transcription_stats["processed"] += personal_result.get("processed", 0)
+                        transcription_stats["errors"] += personal_result.get("errors", 0)
+                    else:
+                        self.logger.info(f"📂 В папке личного аккаунта нет аудио файлов для транскрипции")
             
             # Обрабатываем рабочий аккаунт
             if self.config_manager and self.config_manager.is_work_enabled():
                 work_config = self.config_manager.get_work_config()
                 work_folder = work_config.get('local_drive_root')
                 if work_folder and os.path.exists(work_folder):
-                    self.logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
-                    work_result = self._process_folder_transcription(work_folder, "work")
-                    transcription_stats["details"].append(work_result)
-                    transcription_stats["processed"] += work_result.get("processed", 0)
-                    transcription_stats["errors"] += work_result.get("errors", 0)
+                    self.logger.info(f"🏢 Проверка аудио файлов в папке рабочего аккаунта: {work_folder}")
+                    work_audio_files = self._count_audio_files(work_folder)
+                    if work_audio_files > 0:
+                        self.logger.info(f"🎵 Найдено {work_audio_files} аудио файлов в рабочем аккаунте")
+                        has_audio_files = True
+                        self.logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
+                        work_result = self._process_folder_transcription(work_folder, "work")
+                        transcription_stats["details"].append(work_result)
+                        transcription_stats["processed"] += work_result.get("processed", 0)
+                        transcription_stats["errors"] += work_result.get("errors", 0)
+                    else:
+                        self.logger.info(f"📂 В папке рабочего аккаунта нет аудио файлов для транскрипции")
+            
+            if not has_audio_files:
+                self.logger.info("📂 Нет аудио файлов для транскрипции")
+                transcription_stats["status"] = "no_files"
             
             self.logger.info(f"✅ Транскрипция завершена: обработано {transcription_stats['processed']}, ошибок {transcription_stats['errors']}")
+            
+            # Сохраняем статистику для детальных отчетов
+            self.last_transcription_stats = transcription_stats
+            
             return transcription_stats
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка транскрипции: {e}")
-            return {"status": "error", "processed": 0, "errors": 1, "details": [str(e)]}
+            error_stats = {"status": "error", "processed": 0, "errors": 1, "details": [str(e)]}
+            self.last_transcription_stats = error_stats
+            return error_stats
+    
+    def _count_audio_files(self, folder_path: str) -> int:
+        """Подсчет количества аудио файлов для транскрипции."""
+        try:
+            count = 0
+            for root, dirs, files in os.walk(folder_path):
+                for file in files:
+                    if file.lower().endswith('.mp3') and not file.lower().endswith('_compressed.mp3'):
+                        # Проверяем, существует ли уже файл транскрипции
+                        mp3_path = os.path.join(root, file)
+                        transcript_file = mp3_path.replace('.mp3', '_transcript.txt')
+                        if not os.path.exists(transcript_file):
+                            count += 1
+            return count
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка подсчета аудио файлов: {e}")
+            return 0
     
     def _process_folder_transcription(self, folder_path: str, account_type: str) -> Dict[str, Any]:
         """Обработка транскрипции для конкретной папки."""
@@ -695,11 +954,16 @@ class MeetingAutomationService:
                 notion_stats["details"].append(f"Ошибка синхронизации: {str(e)}")
                 self.logger.error(f"❌ Ошибка синхронизации с Notion: {e}")
             
+            # Сохраняем статистику для детальных отчетов
+            self.last_notion_stats = notion_stats
+            
             return notion_stats
             
         except Exception as e:
-            self.logger.error(f"❌ Критическая ошибка синхронизации с Notion: {e}")
-            return {"status": "error", "synced": 0, "errors": 1, "details": [str(e)]}
+            self.logger.error(f"❌ Ошибка синхронизации с Notion: {e}")
+            error_stats = {"status": "error", "synced": 0, "errors": 1, "details": [str(e)]}
+            self.last_notion_stats = error_stats
+            return error_stats
     
     def send_telegram_notifications(self, current_state: Dict[str, Any], previous_state: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         """Отправка умных уведомлений в Telegram только при наличии изменений."""
@@ -998,7 +1262,9 @@ class MeetingAutomationService:
     def run_service_cycle(self):
         """Основной цикл работы сервиса."""
         try:
+            start_time = time.time()
             self.logger.info("🔄 Запуск цикла обработки...")
+            self.logger.info(f"⏰ Текущее время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             # Загружаем предыдущее состояние
             self.previous_cycle_state = self._load_previous_state()
@@ -1009,27 +1275,47 @@ class MeetingAutomationService:
             # Запускаем автоматизацию для личного аккаунта
             if self.config_manager and self.config_manager.is_personal_enabled():
                 self.logger.info("👤 Обрабатываю личный аккаунт...")
+                personal_start = time.time()
                 personal_stats = self.run_personal_automation()
+                personal_duration = time.time() - personal_start
+                self.logger.info(f"⏱️ Время обработки личного аккаунта: {personal_duration:.2f} секунд")
             else:
                 self.logger.info("⏭️ Личный аккаунт пропущен (отключен в конфигурации)")
             
             # Запускаем автоматизацию для рабочего аккаунта
             if self.config_manager and self.config_manager.is_work_enabled():
                 self.logger.info("🏢 Обрабатываю рабочий аккаунт...")
+                work_start = time.time()
                 work_stats = self.run_work_automation()
+                work_duration = time.time() - work_start
+                self.logger.info(f"⏱️ Время обработки рабочего аккаунта: {work_duration:.2f} секунд")
             else:
                 self.logger.info("⏭️ Рабочий аккаунт пропущен (отключен в конфигурации)")
             
             # Обрабатываем медиа файлы (только если прошло достаточно времени)
+            self.logger.info("🎬 Запуск обработки медиа файлов...")
+            media_start = time.time()
             media_stats = self.process_media_files()
+            media_duration = time.time() - media_start
+            self.logger.info(f"⏱️ Время обработки медиа: {media_duration:.2f} секунд")
+            self.logger.info(f"📊 Результат обработки медиа: {media_stats}")
             
             # 🎤 ТРАНСКРИПЦИЯ АУДИО (каждый цикл)
             self.logger.info("🎤 Запуск транскрипции аудио...")
+            self.logger.info("🔍 Проверка наличия аудио файлов для транскрипции...")
+            transcription_start = time.time()
             transcription_stats = self.process_audio_transcription()
+            transcription_duration = time.time() - transcription_start
+            self.logger.info(f"⏱️ Время транскрипции: {transcription_duration:.2f} секунд")
+            self.logger.info(f"📊 Результат транскрипции: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
             
             # 📝 СИНХРОНИЗАЦИЯ С NOTION (каждый цикл)
             self.logger.info("📝 Запуск синхронизации с Notion...")
+            notion_start = time.time()
             notion_stats = self.sync_with_notion()
+            notion_duration = time.time() - notion_start
+            self.logger.info(f"⏱️ Время синхронизации с Notion: {notion_duration:.2f} секунд")
+            self.logger.info(f"📊 Результат синхронизации с Notion: {notion_stats}")
             
             # Создаем текущее состояние цикла
             self.current_cycle_state = self._create_cycle_state(
@@ -1038,25 +1324,33 @@ class MeetingAutomationService:
             
             # 📱 ОТПРАВКА УВЕДОМЛЕНИЙ В TELEGRAM (только при изменениях)
             self.logger.info("📱 Проверка необходимости отправки уведомлений в Telegram...")
+            telegram_start = time.time()
             telegram_stats = self.send_telegram_notifications(
                 self.current_cycle_state, self.previous_cycle_state
             )
+            telegram_duration = time.time() - telegram_start
+            self.logger.info(f"⏱️ Время отправки уведомлений: {telegram_duration:.2f} секунд")
             
-            # �� СОЗДАНИЕ ФАЙЛОВ СТАТУСА (каждый цикл)
+            #  СОЗДАНИЕ ФАЙЛОВ СТАТУСА (каждый цикл)
             self.logger.info("📁 Создание файлов статуса...")
+            status_start = time.time()
             self.create_status_files()
+            status_duration = time.time() - status_start
+            self.logger.info(f"⏱️ Время создания файлов статуса: {status_duration:.2f} секунд")
             
             # Сохраняем текущее состояние для следующего цикла
             self._save_current_state(self.current_cycle_state)
             
             # Логируем результаты
-            self.logger.info(f"📊 Результаты цикла:")
+            total_duration = time.time() - start_time
+            self.logger.info(f"📊 РЕЗУЛЬТАТЫ ЦИКЛА:")
             self.logger.info(f"   👤 Личный аккаунт: {personal_stats['status']}")
             self.logger.info(f"   🏢 Рабочий аккаунт: {work_stats['status']}")
-            self.logger.info(f"   🎬 Медиа: {media_stats}")
-            self.logger.info(f"   🎤 Транскрипция: {transcription_stats}")
-            self.logger.info(f"   📝 Notion: {notion_stats}")
-            self.logger.info(f"   📱 Telegram: {telegram_stats}")
+            self.logger.info(f"   🎬 Медиа: обработано {media_stats.get('processed', 0)}, найдено {media_stats.get('synced', 0)}")
+            self.logger.info(f"   🎤 Транскрипция: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
+            self.logger.info(f"   📝 Notion: синхронизировано {notion_stats.get('synced', 0)}, ошибок {notion_stats.get('errors', 0)}")
+            self.logger.info(f"   📱 Telegram: {telegram_stats.get('status', 'unknown')}")
+            self.logger.info(f"⏱️ ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ ЦИКЛА: {total_duration:.2f} секунд")
             
             self.logger.info("✅ Цикл обработки завершен успешно")
             
