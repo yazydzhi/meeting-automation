@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Модуль для отслеживания состояния обработки файлов в папках.
-Создает и поддерживает файл 📊 processing_status.json в каждой папке.
+Создает и поддерживает файл processing_status.json в каждой папке.
 """
 
 import json
@@ -16,7 +16,7 @@ class ProcessingStatus:
     
     def __init__(self, folder_path: str):
         self.folder_path = Path(folder_path)
-        self.status_file = self.folder_path / '📊 processing_status.json'
+        self.status_file = self.folder_path / 'processing_status.json'
         self.status_data = self._load_status()
     
     def _load_status(self) -> Dict[str, Any]:

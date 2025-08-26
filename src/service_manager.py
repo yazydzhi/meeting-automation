@@ -821,7 +821,7 @@ class MeetingAutomationService:
     def _create_folder_status_file(self, folder_path: str, account_type: str):
         """Создание файла статуса для конкретной папки."""
         try:
-            status_file_path = os.path.join(folder_path, "📊 СТАТУС ОБРАБОТКИ.txt")
+            status_file_path = os.path.join(folder_path, "processing_status.md")
             
             # Анализируем содержимое папки
             status_info = self._analyze_folder_status(folder_path, account_type)
@@ -1441,6 +1441,21 @@ class MeetingAutomationService:
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
             return {}
     
+    def _create_cycle_state(self, personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats):
+        """Создание состояния текущего цикла обработки."""
+        cycle_state = {
+            "timestamp": datetime.now().isoformat(),
+            "cycle_id": str(uuid.uuid4()),
+            "personal_account": personal_stats,
+            "work_account": work_stats,
+            "media_processing": media_stats,
+            "transcription": transcription_stats,
+            "notion_sync": notion_stats,
+            "summary_generation": summary_stats,
+            "status": "completed"
+        }
+        return cycle_state
+
     def _save_state(self, state):
         """Сохранение состояния сервиса."""
         try:

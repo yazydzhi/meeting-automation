@@ -1,92 +1,50 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Тестовый скрипт для проверки компрессии видео
+Тестирование сжатия видео и извлечения аудио.
 """
 
 import os
 import sys
+import time
+import logging
+from datetime import datetime
 from dotenv import load_dotenv
 
-# Добавляем src в путь
-sys.path.insert(0, 'src')
+# Добавляем путь к корневой директории проекта для импорта модулей
+parent_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, parent_dir)
 
 try:
-    from media_processor import get_media_processor
-    from drive_sync import get_drive_sync
+    from src.config_manager import ConfigManager
+    from src.media_processor import get_media_processor
+    from src.drive_sync import get_drive_sync
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
+    print("Убедитесь, что все модули установлены")
     sys.exit(1)
 
-def get_google_services(env):
-    """Получает Google сервисы."""
-    from google.auth.transport.requests import Request as GoogleRequest
-    from google.oauth2.credentials import Credentials
-    from google_auth_oauthlib.flow import InstalledAppFlow
-    from googleapiclient.discovery import build
-    
-    # Scopes для личного аккаунта
-    SCOPES = [
-        "https://www.googleapis.com/auth/calendar.readonly",
-        "https://www.googleapis.com/auth/drive",
-        "https://www.googleapis.com/auth/drive.file",
-    ]
-    
-    creds = None
-    
-    # Проверяем существующий токен
-    if os.path.exists('tokens/personal_token.json'):
-        creds = Credentials.from_authorized_user_file('tokens/personal_token.json', SCOPES)
-    
-    # Если нет валидных кредов, запрашиваем авторизацию
-    if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(GoogleRequest())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                'creds/client_secret.json', SCOPES)
-            creds = flow.run_local_server(port=0)
-        
-        # Сохраняем креды
-        os.makedirs('tokens', exist_ok=True)
-        with open('tokens/personal_token.json', 'w') as token:
-            token.write(creds.to_json())
-    
-    # Создаем сервисы
-    calendar_service = build('calendar', 'v3', credentials=creds)
-    drive_service = build('drive', 'v3', credentials=creds)
-    
-    return calendar_service, drive_service
-
 def test_video_compression():
-    """Тестирует компрессию видео."""
-    load_dotenv()
+    """Тестирование сжатия видео и извлечения аудио."""
     
     try:
-        # Получаем Google сервисы
-        print("🔍 Получаем Google сервисы...")
-        cal_svc, drive_svc = get_google_services({})
+        print("\n🔍 Получаем Google сервисы...")
         
-        if not drive_svc:
-            print("❌ Google Drive сервис недоступен")
-            return
+        # Загружаем переменные окружения
+        load_dotenv()
         
-        print("✅ Google Drive сервис доступен")
-        
-        # Проверяем переменные окружения
+        # Получаем параметры
         parent_id = os.getenv('PERSONAL_DRIVE_PARENT_ID')
         sync_root = os.getenv('MEDIA_SYNC_ROOT', 'data/synced')
         
         if not parent_id:
-            print("❌ PERSONAL_DRIVE_PARENT_ID не найден в .env")
+            print("❌ Не указан PERSONAL_DRIVE_PARENT_ID")
             return
         
+        print(f"✅ Google Drive сервис доступен")
         print(f"📁 PERSONAL_DRIVE_PARENT_ID: {parent_id}")
         print(f"📁 MEDIA_SYNC_ROOT: {sync_root}")
         
-        # Создаем синхронизатор и процессор с компрессией видео
         print("\n🔧 Создаем модули с компрессией видео...")
-        drive_sync = get_drive_sync(drive_svc, sync_root)
         
         # Тестируем разные настройки компрессии
         compression_configs = [
@@ -100,12 +58,22 @@ def test_video_compression():
             print(f"\n🎬 Тестируем конфигурацию: {config_name}")
             print(f"   Компрессия: {compression}, Качество: {quality}, Кодек: {codec}")
             
+            # Создаем конфигурацию с помощью переменных окружения
+            os.environ['VIDEO_COMPRESSION'] = str(compression).lower()
+            os.environ['VIDEO_QUALITY'] = quality
+            os.environ['VIDEO_CODEC'] = codec
+            os.environ['MEDIA_OUTPUT_FORMAT'] = 'mp3'
+            
+            # Создаем ConfigManager с обновленными настройками
+            config_manager = ConfigManager()
+            
+            # Создаем логгер для теста
+            logger = logging.getLogger("test_video_compression")
+            
+            # Создаем медиа-процессор
             media_processor = get_media_processor(
-                drive_svc, 
-                'mp3', 
-                video_compression=compression,
-                video_quality=quality,
-                video_codec=codec
+                config_manager=config_manager,
+                logger=logger
             )
             
             if not media_processor:
@@ -114,73 +82,29 @@ def test_video_compression():
             
             print("✅ Модуль создан")
             
-            # Ищем папки с событиями
-            print(f"\n🔍 Ищем папки с событиями...")
-            query = f"'{parent_id}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            folders_result = drive_svc.files().list(
-                q=query,
-                fields="files(id,name,createdTime)",
-                orderBy="createdTime desc"
-            ).execute()
+            # Обрабатываем медиа файлы
+            print(f"\n🎬 Обрабатываем медиа файлы...")
+            media_results = media_processor.process_media(quality)
             
-            folders = folders_result.get("files", [])
-            print(f"📁 Найдено папок: {len(folders)}")
+            print(f"📊 Результаты обработки:")
+            if isinstance(media_results, dict):
+                for key, value in media_results.items():
+                    if key == 'results':
+                        for result in value:
+                            print(f"  - Аккаунт: {result.get('account_type', 'unknown')}")
+                            print(f"    - Обработано: {result.get('processed', 0)}")
+                            print(f"    - Синхронизировано: {result.get('synced', 0)}")
+                    else:
+                        print(f"  - {key}: {value}")
+            else:
+                print(f"  - {media_results}")
             
-            # Обрабатываем первую папку с видео
-            for folder in folders[:1]:
-                folder_id = folder['id']
-                folder_name = folder['name']
-                
-                print(f"\n📁 Обрабатываем папку: {folder_name}")
-                
-                try:
-                    # Синхронизируем папку
-                    print(f"  🔄 Синхронизируем папку...")
-                    sync_results = drive_sync.sync_folder(
-                        folder_id, 
-                        folder_name,
-                        file_types=['video/*']
-                    )
-                    
-                    print(f"  📊 Результаты синхронизации:")
-                    print(f"    - Найдено файлов: {sync_results['files_found']}")
-                    print(f"    - Синхронизировано: {sync_results['files_synced']}")
-                    print(f"    - Пропущено: {sync_results['files_skipped']}")
-                    print(f"    - Ошибки: {len(sync_results['errors'])}")
-                    
-                    if sync_results['files_synced'] > 0:
-                        # Получаем локальный путь
-                        local_path = drive_sync.get_local_path(folder_name)
-                        print(f"  📁 Локальный путь: {local_path}")
-                        
-                        # Обрабатываем медиа файлы
-                        print(f"  🎬 Обрабатываем медиа файлы...")
-                        media_results = media_processor.process_folder(
-                            folder_id, 
-                            folder_name, 
-                            local_path
-                        )
-                        
-                        print(f"  📊 Результаты обработки:")
-                        print(f"    - Найдено видео: {media_results['files_found']}")
-                        print(f"    - Обработано: {media_results['files_processed']}")
-                        print(f"    - Пропущено: {media_results['files_skipped']}")
-                        print(f"    - Ошибки: {len(media_results['errors'])}")
-                        print(f"    - Время обработки: {media_results['processing_time']:.2f} сек")
-                        
-                        # Если есть ошибки, показываем их
-                        if media_results['errors']:
-                            print(f"  ❌ Ошибки:")
-                            for error in media_results['errors']:
-                                print(f"    - {error}")
-                        
-                        break  # Обрабатываем только первую папку
-                    
-                except Exception as e:
-                    print(f"  ❌ Ошибка обработки папки {folder_name}: {e}")
-                    import traceback
-                    traceback.print_exc()
-        
+            # Если есть ошибки, показываем их
+            if isinstance(media_results, dict) and 'errors' in media_results and media_results['errors']:
+                print(f"❌ Ошибки:")
+                for error in media_results['errors']:
+                    print(f"  - {error}")
+    
     except Exception as e:
         print(f"❌ Критическая ошибка: {e}")
         import traceback

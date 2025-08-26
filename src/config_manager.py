@@ -168,10 +168,15 @@ class ConfigManager:
         """Получить общие настройки Telegram."""
         return self.config['telegram']
     
+
     def get_notion_config(self) -> Dict[str, Any]:
         """Получить общие настройки Notion."""
+        return self.config["notion"]
+
+    def get_openai_config(self) -> Dict[str, Any]:
+        """Получить настройки OpenAI."""
+        return self.config["openai"]
         return self.config['notion']
-    
     def get_calendar_provider_type(self, account_type: str = 'personal') -> str:
         """Получить тип провайдера календаря для указанного аккаунта."""
         if account_type == 'personal':

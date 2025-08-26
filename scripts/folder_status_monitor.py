@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 try:
     from config_manager import ConfigManager
+from processing_status import ProcessingStatus
     from notion_api import NotionAPI
     from calendar_alternatives import get_calendar_events, get_calendar_provider
 except ImportError as e:

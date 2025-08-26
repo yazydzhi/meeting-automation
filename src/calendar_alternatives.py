@@ -616,7 +616,7 @@ class LocalCalendarProvider(CalendarProvider):
     def _parse_ical(self, content: str, start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
         """Парсинг iCal содержимого."""
         # Используем WebCalendarProvider для парсинга
-        web_provider = WebCalendarProvider("", "ical")
+        web_provider = WebCalendarProvider("file://local", "ical")
         return web_provider._parse_ical(content, start_date, end_date)
     
     def _parse_json(self, content: str, start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
