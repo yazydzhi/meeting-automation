@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 try:
     from src.config_manager import ConfigManager
+    from src.processing_status import ProcessingStatus
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     print("Убедитесь, что все модули установлены")
@@ -126,66 +127,100 @@ class MediaProcessor:
         try:
             result = {"status": "success", "folder": folder_path, "processed": 0, "synced": 0, "total_videos": 0, "processed_files": []}
             
-            # Ищем видео файлы
-            video_files = []
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    if file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
-                        # Исключаем уже сжатые файлы
-                        if 'compressed' not in file.lower():
-                            video_files.append(os.path.join(root, file))
+            # Ищем подпапки с событиями
+            event_folders = []
+            for item in os.listdir(folder_path):
+                item_path = os.path.join(folder_path, item)
+                if os.path.isdir(item_path):
+                    event_folders.append(item_path)
             
-            if not video_files:
-                self.logger.info(f"📁 В папке {folder_path} нет новых видео файлов для обработки")
+            if not event_folders:
+                self.logger.info(f"📁 В папке {folder_path} нет подпапок с событиями")
                 return result
             
-            self.logger.info(f"🎥 Найдено {len(video_files)} новых видео файлов для обработки")
-            result["total_videos"] = len(video_files)
-            
-            # Обрабатываем каждый видео файл
-            for video_file in video_files:
-                try:
-                    self.logger.info(f"🎬 Обрабатываю видео: {os.path.basename(video_file)}")
-                    
-                    # Создаем имя для сжатого файла
-                    base_name = os.path.splitext(video_file)[0]
-                    compressed_video = f"{base_name}_compressed.mp4"
-                    compressed_audio = f"{base_name}_compressed.mp3"
-                    
-                    # Сжимаем видео
-                    video_success = self._compress_video(video_file, compressed_video, quality)
-                    if video_success:
-                        result["processed"] += 1
+            # Обрабатываем каждую папку с событием
+            for event_folder in event_folders:
+                self.logger.info(f"📁 Обрабатываю папку события: {os.path.basename(event_folder)}")
+                
+                # Создаем или загружаем статус обработки для этой папки
+                status_manager = ProcessingStatus(event_folder)
+                
+                # Ищем видео файлы в этой папке
+                video_files = []
+                for file in os.listdir(event_folder):
+                    file_path = os.path.join(event_folder, file)
+                    if os.path.isfile(file_path) and file.lower().endswith(('.mp4', '.avi', '.mov', '.mkv')):
+                        # Исключаем уже сжатые файлы
+                        if 'compressed' not in file.lower():
+                            # Проверяем, был ли файл уже обработан (сжатие видео)
+                            if not status_manager.is_file_processed(file, 'video_compression'):
+                                video_files.append(file_path)
+                                # Добавляем файл в отслеживание, если его еще нет
+                                if file not in status_manager.status_data['files']:
+                                    status_manager.add_file(file_path, 'video')
+                            else:
+                                self.logger.info(f"⏭️ Пропускаю уже обработанный файл: {file}")
+                
+                if not video_files:
+                    self.logger.info(f"📁 В папке {event_folder} нет новых видео файлов для обработки")
+                    continue
+                
+                self.logger.info(f"🎥 Найдено {len(video_files)} новых видео файлов для обработки")
+                result["total_videos"] += len(video_files)
+                
+                # Обрабатываем каждый видео файл
+                for video_file in video_files:
+                    try:
+                        file_name = os.path.basename(video_file)
+                        self.logger.info(f"🎬 Обрабатываю видео: {file_name}")
+                        
+                        # Создаем имя для сжатого файла
+                        base_name = os.path.splitext(video_file)[0]
+                        compressed_video = f"{base_name}_compressed.mp4"
+                        compressed_audio = f"{base_name}_compressed.mp3"
+                        
+                        # Сжимаем видео
+                        video_success = self._compress_video(video_file, compressed_video, quality)
+                        if video_success:
+                            result["processed"] += 1
+                            result["processed_files"].append({
+                                "file": file_name,
+                                "type": "video",
+                                "output": os.path.basename(compressed_video),
+                                "status": "success"
+                            })
+                            # Отмечаем этап как завершенный
+                            status_manager.mark_file_processed(file_name, 'video_compression', [os.path.basename(compressed_video)])
+                            self.logger.info(f"✅ Видео сжато: {os.path.basename(compressed_video)}")
+                        
+                        # Извлекаем аудио
+                        audio_success = self._extract_audio(video_file, compressed_audio)
+                        if audio_success:
+                            result["processed"] += 1
+                            result["processed_files"].append({
+                                "file": file_name,
+                                "type": "audio",
+                                "output": os.path.basename(compressed_audio),
+                                "status": "success"
+                            })
+                            # Отмечаем этап как завершенный
+                            status_manager.mark_file_processed(file_name, 'audio_extraction', [os.path.basename(compressed_audio)])
+                            self.logger.info(f"✅ Аудио извлечено: {os.path.basename(compressed_audio)}")
+                        
+                        # Обновляем общий статус файла
+                        status_manager.update_file_status(file_name)
+                        result["synced"] += 1
+                        
+                    except Exception as e:
+                        self.logger.error(f"❌ Ошибка обработки {os.path.basename(video_file)}: {e}")
                         result["processed_files"].append({
                             "file": os.path.basename(video_file),
-                            "type": "video",
-                            "output": compressed_video,
-                            "status": "success"
+                            "type": "error",
+                            "error": str(e),
+                            "status": "error"
                         })
-                        self.logger.info(f"✅ Видео сжато: {os.path.basename(compressed_video)}")
-                    
-                    # Извлекаем аудио
-                    audio_success = self._extract_audio(video_file, compressed_audio)
-                    if audio_success:
-                        result["processed"] += 1
-                        result["processed_files"].append({
-                            "file": os.path.basename(video_file),
-                            "type": "audio",
-                            "output": compressed_audio,
-                            "status": "success"
-                        })
-                        self.logger.info(f"✅ Аудио извлечено: {os.path.basename(compressed_audio)}")
-                    
-                    result["synced"] += 1
-                    
-                except Exception as e:
-                    self.logger.error(f"❌ Ошибка обработки {os.path.basename(video_file)}: {e}")
-                    result["processed_files"].append({
-                        "file": os.path.basename(video_file),
-                        "type": "error",
-                        "error": str(e),
-                        "status": "error"
-                    })
+                        # Отмечаем ошибку в статусе
+                        status_manager.mark_file_failed(os.path.basename(video_file), 'processing', str(e))
             
             return result
             
