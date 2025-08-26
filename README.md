@@ -22,12 +22,17 @@ meeting_automation/
 ├── src/
 │   ├── config_manager.py         # Менеджер конфигурации
 │   ├── service_manager.py        # Системный сервис
-│   ├── calendar_processor.py     # Обработчик календарей
-│   ├── drive_processor.py        # Обработчик Google Drive
-│   ├── media_processor.py        # Обработчик медиа
-│   └── notion_processor.py       # Обработчик Notion
+│   ├── calendar_handler.py       # Обработчик календарей
+│   ├── media_processor.py        # Обработчик медиа файлов
+│   ├── transcription_handler.py  # Обработчик транскрипций и саммари
+│   ├── telegram_api.py           # API для Telegram
+│   └── transcript_analyzer.py    # Анализатор транскрипций
 ├── scripts/
-│   └── monitor_service.py        # Мониторинг сервиса
+│   ├── monitor_service.py        # Мониторинг сервиса
+│   └── folder_status_monitor.py  # Мониторинг папок встреч
+├── data/                         # Данные кэша и статистики
+│   ├── service_cache.json        # Кэш обработанных файлов
+│   └── performance_stats.json    # Статистика производительности
 └── logs/                         # Логи системы
 ```
 
@@ -130,6 +135,239 @@ tail -f logs/service.log
 tail -f logs/universal_automation.log
 ```
 
+## 📊 Мониторинг состояния папок встреч
+
+### Комплексный мониторинг
+
+Для детального анализа состояния папок встреч используйте скрипт `folder_status_monitor.py`:
+
+```bash
+# Базовый мониторинг
+python scripts/folder_status_monitor.py
+
+# С сохранением отчета в файл
+python scripts/folder_status_monitor.py --save
+
+# С указанием пути для сохранения
+python scripts/folder_status_monitor.py --save --output my_report.txt
+
+# С отправкой в Telegram
+python scripts/folder_status_monitor.py --telegram
+
+# Комбинированный режим
+python scripts/folder_status_monitor.py --save --telegram
+```
+
+#### Что показывает скрипт:
+
+**📂 Анализ папок встреч:**
+- Общее количество папок по аккаунтам
+- Статус каждой папки (завершено, в процессе, не начато)
+- Процент завершения обработки
+
+**🔄 Этапы обработки:**
+- 🎬 Сжатие видео
+- 🎵 Извлечение аудио  
+- 📝 Транскрипция
+- 📋 Генерация саммари
+- 🔗 Синхронизация с Notion
+
+**📅 Интеграции:**
+- Поиск событий в Google Calendar
+- Поиск записей в Notion
+- Связывание папок с календарными событиями
+
+**📊 Статистика файлов:**
+- Оригинальные видео
+- Сжатые версии
+- Аудио файлы
+- Транскрипции
+- Саммари
+- Данные Notion
+
+#### Пример отчета:
+
+```
+🤖 *КОМПЛЕКСНЫЙ ОТЧЕТ О СОСТОЯНИИ ПАПОК ВСТРЕЧ*
+
+👥 *PERSONAL АККАУНТ*
+📁 Всего папок: 2
+
+📂 *2025-08-21 18-00 Тестовая встреча*
+   🎯 Статус: 🟡 near_completion
+   📊 Прогресс: 80%
+   🔄 Этапы обработки:
+      🎬 Видео: ✅ completed
+      🎵 Аудио: ✅ completed
+      📝 Транскрипция: ✅ completed
+      📋 Саммари: ✅ completed
+      🔗 Notion: ❌ not_started
+```
+
+#### Автоматизация:
+
+Добавьте в cron для регулярного мониторинга:
+
+```bash
+# Каждые 5 минут
+*/5 * * * * cd /path/to/meeting_automation && python scripts/folder_status_monitor.py --save --telegram
+
+# Каждый час
+0 * * * * cd /path/to/meeting_automation && python scripts/folder_status_monitor.py --save
+```
+
+## 🚀 Запуск как системный сервис
+
+### macOS (launchctl)
+
+Для запуска как системный сервис на macOS используйте `launchctl`:
+
+#### 1. Создание plist файла
+
+Создайте файл `~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.yazydzhi.meeting-automation</string>
+    
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/azg/repository/meeting_automation/venv/bin/python</string>
+        <string>/Users/azg/repository/meeting_automation/src/service_manager.py</string>
+        <string>--interval</string>
+        <string>300</string>
+        <string>--media-interval</string>
+        <string>1800</string>
+    </array>
+    
+    <key>WorkingDirectory</key>
+    <string>/Users/azg/repository/meeting_automation</string>
+    
+    <key>StandardOutPath</key>
+    <string>/Users/azg/repository/meeting_automation/logs/service.log</string>
+    
+    <key>StandardErrorPath</key>
+    <string>/Users/azg/repository/meeting_automation/logs/service_error.log</string>
+    
+    <key>RunAtLoad</key>
+    <true/>
+    
+    <key>KeepAlive</key>
+    <true/>
+    
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>
+```
+
+#### 2. Загрузка и запуск сервиса
+
+```bash
+# Загрузить сервис
+launchctl load ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
+
+# Проверить статус
+launchctl list | grep meeting-automation
+
+# Остановить сервис
+launchctl unload ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
+```
+
+#### 3. Параметры запуска
+
+**Обязательные параметры:**
+- `--interval 300` - интервал проверки календаря (5 минут)
+- `--media-interval 1800` - интервал медиа обработки (30 минут)
+
+**Дополнительные параметры:**
+- `--log-level INFO` - уровень логирования (DEBUG, INFO, WARNING, ERROR)
+- `--config .env` - путь к файлу конфигурации
+
+**Пример запуска:**
+```bash
+# Базовый запуск
+python src/service_manager.py --interval 300 --media-interval 1800
+
+# С дополнительными параметрами
+python src/service_manager.py --interval 300 --media-interval 1800 --log-level DEBUG --config .env.custom
+```
+
+#### 4. Мониторинг
+
+```bash
+# Проверка статуса
+python ./scripts/monitor_service.py
+
+# Просмотр логов
+tail -f logs/service.log
+tail -f logs/service_error.log
+```
+
+### Linux (systemd)
+
+Для Linux создайте файл `/etc/systemd/system/meeting-automation.service`:
+
+```ini
+[Unit]
+Description=Meeting Automation Service
+After=network.target
+
+[Service]
+Type=simple
+User=azg
+WorkingDirectory=/path/to/meeting_automation
+Environment=PATH=/path/to/meeting_automation/venv/bin
+ExecStart=/path/to/meeting_automation/venv/bin/python src/service_manager.py --interval 300 --media-interval 1800
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Затем:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable meeting-automation
+sudo systemctl start meeting-automation
+sudo systemctl status meeting-automation
+```
+
+## 🔧 Оптимизация и производительность
+
+### Кэширование результатов
+
+Система использует кэширование для оптимизации производительности:
+
+- **Кэш обработанных файлов** - хранится в `data/service_cache.json`
+- **Кэш транскрибированных файлов** - предотвращает повторную транскрипцию
+- **Кэш проанализированных файлов** - предотвращает повторный анализ
+- **Кэш страниц Notion** - ускоряет синхронизацию с Notion
+
+### Параллельная обработка
+
+Система использует параллельную обработку для независимых операций:
+
+- **Обработка аккаунтов** - личный и рабочий аккаунты обрабатываются параллельно
+- **Отправка уведомлений** - происходит параллельно с созданием файлов статуса
+- **Медиа обработка** - может обрабатывать несколько файлов параллельно
+
+### Мониторинг производительности
+
+Система ведет мониторинг производительности:
+
+- **CPU** - отслеживает использование процессора
+- **Память** - отслеживает использование памяти
+- **Диск** - отслеживает использование диска
+- **Время выполнения** - отслеживает время выполнения каждого этапа
+
+Статистика сохраняется в `data/performance_stats.json` и доступна для анализа.
+
 ## 🔧 Установка
 
 1. **Клонирование репозитория**
@@ -188,6 +426,9 @@ tail -f logs/universal_automation.log
 ```bash
 # Проверка конфигурации
 python -c "from src.config_manager import ConfigManager; config = ConfigManager(); print(config.get_config_summary())"
+
+# Проверка валидности конфигурации
+python -c "from src.config_manager import ConfigManager; config = ConfigManager(); print(config.validate_config())"
 ```
 
 ### Проблемы с сервисом
@@ -198,6 +439,9 @@ ps aux | grep meeting
 # Перезапуск сервиса
 launchctl unload ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
 launchctl load ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
+
+# Проверка логов
+tail -f logs/service.log
 ```
 
 ### Проблемы с медиа
@@ -206,7 +450,50 @@ launchctl load ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
 ffmpeg -version
 
 # Очистка зависших процессов
-python -c "from src.service_manager import MeetingAutomationService; service = MeetingAutomationService(); service._kill_hanging_ffmpeg_processes()"
+pkill -f ffmpeg
+
+# Проверка статуса кэша
+python -c "import json; print(json.load(open('data/service_cache.json')))"
+
+# Очистка кэша (в случае проблем)
+rm data/service_cache.json
+```
+
+### Проблемы с транскрипцией
+```bash
+# Проверка наличия аудио файлов
+find /path/to/meetings -name "*.mp3" | grep -v "_compressed"
+
+# Запуск транскрипции для конкретного файла
+python meeting_automation_universal.py transcribe --file /path/to/audio.mp3
+
+# Проверка статуса транскрипции
+python -c "from src.service_manager import MeetingAutomationService; service = MeetingAutomationService(); print(service.process_audio_transcription())"
+```
+
+### Проблемы с производительностью
+```bash
+# Проверка статистики производительности
+python -c "import json; print(json.load(open('data/performance_stats.json')))"
+
+# Мониторинг ресурсов в реальном времени
+top -o cpu  # Сортировка по CPU
+top -o mem  # Сортировка по памяти
+
+# Проверка использования диска
+du -sh /path/to/meeting_automation
+```
+
+### Сброс состояния сервиса
+```bash
+# Остановка сервиса
+launchctl unload ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
+
+# Очистка кэша и состояния
+rm -f data/service_cache.json data/service_state.json data/performance_stats.json
+
+# Запуск сервиса заново
+launchctl load ~/Library/LaunchAgents/com.yazydzhi.meeting-automation.plist
 ```
 
 ## 📝 Логирование
