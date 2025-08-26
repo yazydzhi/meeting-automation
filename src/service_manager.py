@@ -117,6 +117,10 @@ class MeetingAutomationService:
         self.previous_cycle_state = {}
         self.current_cycle_state = {}
         
+        # Флаг работы сервиса
+        self.running = False
+        self.thread = None
+        
         # Инициализируем кэш результатов
         self.cache = {
             'processed_files': set(),  # Множество уже обработанных файлов
