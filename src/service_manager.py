@@ -91,8 +91,11 @@ class MeetingAutomationService:
     
     def _create_cycle_state(self, personal_stats: Dict[str, Any], work_stats: Dict[str, Any], 
                            media_stats: Dict[str, Any], transcription_stats: Dict[str, Any], 
-                           notion_stats: Dict[str, Any]) -> Dict[str, Any]:
+                           notion_stats: Dict[str, Any], summary_stats: Dict[str, Any] = None) -> Dict[str, Any]:
         """Создает состояние текущего цикла для сравнения."""
+        if summary_stats is None:
+            summary_stats = {"status": "skipped", "processed": 0, "errors": 0}
+        
         return {
             "timestamp": datetime.now().isoformat(),
             "personal_account": {
@@ -106,24 +109,19 @@ class MeetingAutomationService:
             "media_processing": {
                 "processed": media_stats.get("processed", 0),
                 "synced": media_stats.get("synced", 0),
-                "errors": media_stats.get("errors", 0),
-                "has_changes": (media_stats.get("processed", 0) > 0 or 
-                               media_stats.get("synced", 0) > 0 or 
-                               media_stats.get("errors", 0) > 0)
+                "errors": media_stats.get("errors", 0)
             },
             "transcription": {
-                "status": transcription_stats.get("status", "unknown"),
                 "processed": transcription_stats.get("processed", 0),
-                "errors": transcription_stats.get("errors", 0),
-                "has_changes": (transcription_stats.get("processed", 0) > 0 or 
-                               transcription_stats.get("errors", 0) > 0)
+                "errors": transcription_stats.get("errors", 0)
+            },
+            "summary": {
+                "processed": summary_stats.get("processed", 0),
+                "errors": summary_stats.get("errors", 0)
             },
             "notion_sync": {
-                "status": notion_stats.get("status", "unknown"),
                 "synced": notion_stats.get("synced", 0),
-                "errors": notion_stats.get("errors", 0),
-                "has_changes": (notion_stats.get("synced", 0) > 0 or 
-                               notion_stats.get("errors", 0) > 0)
+                "errors": notion_stats.get("errors", 0)
             }
         }
     
@@ -1269,6 +1267,8 @@ class MeetingAutomationService:
             # Загружаем предыдущее состояние
             self.previous_cycle_state = self._load_previous_state()
             
+            # Этап 1: Календарь → создание папки, записи в Notion
+            self.logger.info("📅 ЭТАП 1: Обработка календаря и создание папок встреч...")
             personal_stats = {"status": "skipped", "output": ""}
             work_stats = {"status": "skipped", "output": ""}
             
@@ -1292,16 +1292,16 @@ class MeetingAutomationService:
             else:
                 self.logger.info("⏭️ Рабочий аккаунт пропущен (отключен в конфигурации)")
             
-            # Обрабатываем медиа файлы (только если прошло достаточно времени)
-            self.logger.info("🎬 Запуск обработки медиа файлов...")
+            # Этап 2: Сжатие медиа → выделение MP3
+            self.logger.info("🎬 ЭТАП 2: Обработка медиа файлов...")
             media_start = time.time()
             media_stats = self.process_media_files()
             media_duration = time.time() - media_start
             self.logger.info(f"⏱️ Время обработки медиа: {media_duration:.2f} секунд")
             self.logger.info(f"📊 Результат обработки медиа: {media_stats}")
             
-            # 🎤 ТРАНСКРИПЦИЯ АУДИО (каждый цикл)
-            self.logger.info("🎤 Запуск транскрипции аудио...")
+            # Этап 3: Транскрипция
+            self.logger.info("🎤 ЭТАП 3: Транскрипция аудио...")
             self.logger.info("🔍 Проверка наличия аудио файлов для транскрипции...")
             transcription_start = time.time()
             transcription_stats = self.process_audio_transcription()
@@ -1309,8 +1309,16 @@ class MeetingAutomationService:
             self.logger.info(f"⏱️ Время транскрипции: {transcription_duration:.2f} секунд")
             self.logger.info(f"📊 Результат транскрипции: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
             
-            # 📝 СИНХРОНИЗАЦИЯ С NOTION (каждый цикл)
-            self.logger.info("📝 Запуск синхронизации с Notion...")
+            # Этап 4: Саммари и другая полезная информация
+            self.logger.info("📋 ЭТАП 4: Генерация саммари и анализ транскрипций...")
+            summary_start = time.time()
+            summary_stats = self.process_summaries()
+            summary_duration = time.time() - summary_start
+            self.logger.info(f"⏱️ Время генерации саммари: {summary_duration:.2f} секунд")
+            self.logger.info(f"📊 Результат генерации саммари: обработано {summary_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
+            
+            # Этап 5: Обновление Notion
+            self.logger.info("📝 ЭТАП 5: Синхронизация с Notion...")
             notion_start = time.time()
             notion_stats = self.sync_with_notion()
             notion_duration = time.time() - notion_start
@@ -1319,11 +1327,11 @@ class MeetingAutomationService:
             
             # Создаем текущее состояние цикла
             self.current_cycle_state = self._create_cycle_state(
-                personal_stats, work_stats, media_stats, transcription_stats, notion_stats
+                personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats
             )
             
-            # 📱 ОТПРАВКА УВЕДОМЛЕНИЙ В TELEGRAM (только при изменениях)
-            self.logger.info("📱 Проверка необходимости отправки уведомлений в Telegram...")
+            # Этап 6: Отчет в Telegram
+            self.logger.info("📱 ЭТАП 6: Отправка уведомлений в Telegram...")
             telegram_start = time.time()
             telegram_stats = self.send_telegram_notifications(
                 self.current_cycle_state, self.previous_cycle_state
@@ -1331,7 +1339,7 @@ class MeetingAutomationService:
             telegram_duration = time.time() - telegram_start
             self.logger.info(f"⏱️ Время отправки уведомлений: {telegram_duration:.2f} секунд")
             
-            #  СОЗДАНИЕ ФАЙЛОВ СТАТУСА (каждый цикл)
+            # Создание файлов статуса
             self.logger.info("📁 Создание файлов статуса...")
             status_start = time.time()
             self.create_status_files()
@@ -1348,6 +1356,7 @@ class MeetingAutomationService:
             self.logger.info(f"   🏢 Рабочий аккаунт: {work_stats['status']}")
             self.logger.info(f"   🎬 Медиа: обработано {media_stats.get('processed', 0)}, найдено {media_stats.get('synced', 0)}")
             self.logger.info(f"   🎤 Транскрипция: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
+            self.logger.info(f"   📋 Саммари: обработано {summary_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
             self.logger.info(f"   📝 Notion: синхронизировано {notion_stats.get('synced', 0)}, ошибок {notion_stats.get('errors', 0)}")
             self.logger.info(f"   📱 Telegram: {telegram_stats.get('status', 'unknown')}")
             self.logger.info(f"⏱️ ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ ЦИКЛА: {total_duration:.2f} секунд")
@@ -1356,6 +1365,200 @@ class MeetingAutomationService:
             
         except Exception as e:
             self.logger.error(f"❌ Критическая ошибка в цикле сервиса: {e}")
+    
+    def process_summaries(self) -> Dict[str, Any]:
+        """Обработка саммари для транскрипций."""
+        try:
+            self.logger.info("📝 Начинаю генерацию саммари для транскрипций...")
+            
+            summary_stats = {"status": "success", "processed": 0, "errors": 0, "details": []}
+            
+            # Проверяем наличие транскрипций перед запуском
+            has_transcriptions = False
+            
+            # Обрабатываем личный аккаунт
+            if self.config_manager and self.config_manager.is_personal_enabled():
+                personal_config = self.config_manager.get_personal_config()
+                personal_folder = personal_config.get('local_drive_root')
+                if personal_folder and os.path.exists(personal_folder):
+                    self.logger.info(f"👤 Проверка транскрипций в папке личного аккаунта: {personal_folder}")
+                    personal_result = self._process_folder_summaries(personal_folder, "personal")
+                    if personal_result["processed"] > 0:
+                        has_transcriptions = True
+                        summary_stats["details"].append(personal_result)
+                        summary_stats["processed"] += personal_result.get("processed", 0)
+                        summary_stats["errors"] += personal_result.get("errors", 0)
+                    else:
+                        self.logger.info(f"📂 В папке личного аккаунта нет транскрипций для анализа")
+            
+            # Обрабатываем рабочий аккаунт
+            if self.config_manager and self.config_manager.is_work_enabled():
+                work_config = self.config_manager.get_work_config()
+                work_folder = work_config.get('local_drive_root')
+                if work_folder and os.path.exists(work_folder):
+                    self.logger.info(f"🏢 Проверка транскрипций в папке рабочего аккаунта: {work_folder}")
+                    work_result = self._process_folder_summaries(work_folder, "work")
+                    if work_result["processed"] > 0:
+                        has_transcriptions = True
+                        summary_stats["details"].append(work_result)
+                        summary_stats["processed"] += work_result.get("processed", 0)
+                        summary_stats["errors"] += work_result.get("errors", 0)
+                    else:
+                        self.logger.info(f"📂 В папке рабочего аккаунта нет транскрипций для анализа")
+            
+            if not has_transcriptions:
+                self.logger.info("📂 Нет транскрипций для анализа")
+                summary_stats["status"] = "no_files"
+            
+            self.logger.info(f"✅ Генерация саммари завершена: обработано {summary_stats['processed']}, ошибок {summary_stats['errors']}")
+            
+            # Сохраняем статистику для детальных отчетов
+            self.last_summary_stats = summary_stats
+            
+            return summary_stats
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка генерации саммари: {e}")
+            error_stats = {"status": "error", "processed": 0, "errors": 1, "details": [str(e)]}
+            self.last_summary_stats = error_stats
+            return error_stats
+    
+    def _process_folder_summaries(self, folder_path: str, account_type: str) -> Dict[str, Any]:
+        """Обработка саммари для транскрипций в конкретной папке."""
+        try:
+            result = {"account": account_type, "folder": folder_path, "processed": 0, "errors": 0, "files": []}
+            
+            # Ищем файлы транскрипций для анализа
+            transcript_files = []
+            for root, dirs, files in os.walk(folder_path):
+                for file in files:
+                    if file.lower().endswith('_transcript.txt'):
+                        # Проверяем, существует ли уже файл саммари
+                        transcript_path = os.path.join(root, file)
+                        summary_file = transcript_path.replace('_transcript.txt', '_summary.txt')
+                        analysis_file = transcript_path.replace('_transcript.txt', '_analysis.json')
+                        
+                        # Если саммари или анализ уже существуют, пропускаем файл
+                        if os.path.exists(summary_file) or os.path.exists(analysis_file):
+                            continue
+                        
+                        transcript_files.append(transcript_path)
+            
+            if not transcript_files:
+                self.logger.info(f"📁 В папке {folder_path} нет новых транскрипций для анализа")
+                return result
+            
+            self.logger.info(f"📄 Найдено {len(transcript_files)} транскрипций для анализа")
+            
+            # Получаем настройки OpenAI
+            openai_config = self.config_manager.get_openai_config()
+            openai_api_key = openai_config.get('api_key')
+            
+            if not openai_api_key:
+                self.logger.error("❌ Не настроен API ключ OpenAI")
+                result["errors"] += 1
+                return result
+            
+            # Инициализируем анализатор транскрипций
+            from transcript_analyzer import TranscriptAnalyzer
+            analyzer = TranscriptAnalyzer(
+                api_key=openai_api_key,
+                model=openai_config.get('analysis_model', 'gpt-4o-mini')
+            )
+            
+            # Обрабатываем каждую транскрипцию
+            for transcript_path in transcript_files:
+                try:
+                    file_name = os.path.basename(transcript_path)
+                    self.logger.info(f"📝 Анализирую транскрипцию: {file_name}")
+                    
+                    # Извлекаем название и дату встречи из имени файла
+                    meeting_title = ""
+                    meeting_date = ""
+                    
+                    # Пытаемся извлечь дату из имени файла
+                    import re
+                    date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file_name)
+                    if date_match:
+                        meeting_date = date_match.group(1)
+                    
+                    # Пытаемся извлечь название встречи
+                    if meeting_date:
+                        title_match = re.search(rf'{meeting_date}.*?_transcript\.txt', file_name)
+                        if title_match:
+                            meeting_title = title_match.group(0).replace(f"{meeting_date} ", "").replace("_transcript.txt", "")
+                    
+                    # Читаем транскрипцию
+                    with open(transcript_path, 'r', encoding='utf-8') as f:
+                        transcript_text = f.read()
+                    
+                    # Анализируем транскрипцию
+                    analysis_result = analyzer.analyze_meeting_transcript(
+                        transcript=transcript_text,
+                        meeting_title=meeting_title,
+                        meeting_date=meeting_date
+                    )
+                    
+                    # Сохраняем результат анализа в JSON
+                    analysis_file = transcript_path.replace('_transcript.txt', '_analysis.json')
+                    with open(analysis_file, 'w', encoding='utf-8') as f:
+                        import json
+                        json.dump(analysis_result, f, ensure_ascii=False, indent=2)
+                    
+                    # Создаем текстовое саммари
+                    summary_file = transcript_path.replace('_transcript.txt', '_summary.txt')
+                    with open(summary_file, 'w', encoding='utf-8') as f:
+                        summary = analysis_result.get('meeting_summary', {})
+                        f.write(f"# {summary.get('title', 'Встреча')}\n\n")
+                        f.write(f"Дата: {meeting_date}\n\n")
+                        f.write(f"## Основная тема\n{summary.get('main_topic', 'Не указана')}\n\n")
+                        
+                        # Ключевые решения
+                        f.write("## Ключевые решения\n")
+                        for decision in summary.get('key_decisions', []):
+                            f.write(f"- {decision}\n")
+                        f.write("\n")
+                        
+                        # Действия
+                        f.write("## Действия\n")
+                        for action in summary.get('action_items', []):
+                            f.write(f"- {action}\n")
+                        f.write("\n")
+                        
+                        # Следующие шаги
+                        f.write("## Следующие шаги\n")
+                        for step in summary.get('next_steps', []):
+                            f.write(f"- {step}\n")
+                        f.write("\n")
+                        
+                        # Участники
+                        f.write("## Участники\n")
+                        for participant in summary.get('participants', []):
+                            f.write(f"- {participant}\n")
+                    
+                    result["processed"] += 1
+                    result["files"].append({
+                        "file": file_name,
+                        "status": "success",
+                        "output": os.path.basename(summary_file)
+                    })
+                    
+                    self.logger.info(f"✅ Анализ завершен: {file_name}")
+                    
+                except Exception as e:
+                    result["errors"] += 1
+                    result["files"].append({
+                        "file": os.path.basename(transcript_path),
+                        "status": "error",
+                        "error": str(e)
+                    })
+                    self.logger.error(f"❌ Ошибка анализа {os.path.basename(transcript_path)}: {e}")
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обработки папки {folder_path}: {e}")
+            return {"account": account_type, "folder": folder_path, "processed": 0, "errors": 1, "files": [], "error": str(e)}
     
     def service_worker(self):
         """Рабочий поток сервиса."""
