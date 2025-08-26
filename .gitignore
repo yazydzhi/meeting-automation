@@ -4,7 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.sqlite3
-__init__.py
+./__init__.py
 
 # Envs
 venv/
@@ -72,7 +72,6 @@ SERVICE_IMPLEMENTATION_REPORT.md
 
 # Environment files
 env.*
-.env.*
 
 # Keep example configs
 !env.*.example
