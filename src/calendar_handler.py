@@ -63,10 +63,8 @@ class CalendarHandler:
                         return {"status": "error", "message": "Failed to get calendar provider"}
                     
                     # Получаем провайдер диска
-                    drive_provider = get_drive_provider(
-                        self.config_manager.get_drive_provider_type('personal'),
-                        **self.config_manager.get_drive_provider_config('personal')
-                    )
+                    drive_config = self.config_manager.get_drive_provider_config('personal')
+                    drive_provider = get_drive_provider(**drive_config)
                     
                     if not drive_provider:
                         self.logger.warning("⚠️ Провайдер диска недоступен")
@@ -90,10 +88,8 @@ class CalendarHandler:
                         return {"status": "error", "message": "Failed to get calendar provider"}
                     
                     # Получаем провайдер диска
-                    drive_provider = get_drive_provider(
-                        self.config_manager.get_drive_provider_type('work'),
-                        **self.config_manager.get_drive_provider_config('work')
-                    )
+                    drive_config = self.config_manager.get_drive_provider_config('work')
+                    drive_provider = get_drive_provider(**drive_config)
                     
                     if not drive_provider:
                         self.logger.warning("⚠️ Провайдер диска недоступен")
