@@ -8,6 +8,7 @@ import os
 import sys
 import argparse
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import List, Dict, Any
 import time
@@ -30,7 +31,12 @@ def setup_logging():
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler('logs/mp3_processing.log', encoding='utf-8'),
+                    RotatingFileHandler(
+            "logs/mp3_processing.log",
+            maxBytes=int(os.getenv("LOG_MAX_SIZE_MB", "100")) * 1024 * 1024,
+            backupCount=int(os.getenv("LOG_BACKUP_COUNT", "5")),
+            encoding="utf-8"
+        )
             logging.StreamHandler(sys.stdout)
         ]
     )

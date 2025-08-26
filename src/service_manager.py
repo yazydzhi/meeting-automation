@@ -11,6 +11,7 @@ import time
 import json
 import signal
 import logging
+from logging.handlers import RotatingFileHandler
 import threading
 import subprocess
 import traceback
@@ -197,7 +198,16 @@ class MeetingAutomationService:
         )
         
         # Хендлер для основного лога (INFO и выше)
-        file_handler = logging.FileHandler(log_dir / "service.log")
+                # Настройки ротации логов
+        max_bytes = int(os.getenv("LOG_MAX_SIZE_MB", "100")) * 1024 * 1024
+        backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
+        
+        file_handler = RotatingFileHandler(
+            log_dir / "service.log",
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding="utf-8"
+        )
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         

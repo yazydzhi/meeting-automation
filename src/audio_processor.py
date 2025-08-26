@@ -14,6 +14,7 @@ import shutil
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 import logging
+from logging.handlers import RotatingFileHandler
 import time # Добавляем для повторных попыток
 from pathlib import Path
 
@@ -162,7 +163,12 @@ class AudioProcessor:
             level=getattr(logging, log_level.upper()),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(log_file, encoding='utf-8'),
+                        RotatingFileHandler(
+            log_file,
+            maxBytes=int(os.getenv("LOG_MAX_SIZE_MB", "100")) * 1024 * 1024,
+            backupCount=int(os.getenv("LOG_BACKUP_COUNT", "5")),
+            encoding="utf-8"
+        )
                 logging.StreamHandler()
             ]
         )

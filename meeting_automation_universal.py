@@ -8,6 +8,7 @@ import os
 import sys
 import argparse
 import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import subprocess
 from datetime import datetime, timedelta
@@ -38,7 +39,12 @@ def setup_logging():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('logs/meeting_automation_universal.log', encoding='utf-8')
+                    RotatingFileHandler(
+            "logs/meeting_automation_universal.log",
+            maxBytes=int(os.getenv("LOG_MAX_SIZE_MB", "100")) * 1024 * 1024,
+            backupCount=int(os.getenv("LOG_BACKUP_COUNT", "5")),
+            encoding="utf-8"
+        )
         ]
     )
     return logging.getLogger(__name__)
