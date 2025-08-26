@@ -56,7 +56,7 @@ class CalendarHandler:
                     self.logger.info("👤 Обрабатываю личный аккаунт")
                     # Получаем провайдер календаря
                     calendar_provider = get_calendar_provider(
-                        self.config_manager.get_calendar_provider_type('personal'),
+                        provider_type=self.config_manager.get_calendar_provider_type('personal'),
                         **self.config_manager.get_calendar_provider_config('personal')
                     )
                     
@@ -85,7 +85,7 @@ class CalendarHandler:
                     self.logger.info("🏢 Обрабатываю рабочий аккаунт")
                     # Получаем провайдер календаря
                     calendar_provider = get_calendar_provider(
-                        self.config_manager.get_calendar_provider_type('work'),
+                        provider_type=self.config_manager.get_calendar_provider_type('work'),
                         **self.config_manager.get_calendar_provider_config('work')
                     )
                     
