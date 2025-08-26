@@ -55,10 +55,8 @@ class CalendarHandler:
                 if self.config_manager.is_personal_enabled():
                     self.logger.info("👤 Обрабатываю личный аккаунт")
                     # Получаем провайдер календаря
-                    calendar_provider = get_calendar_provider(
-                        provider_type=self.config_manager.get_calendar_provider_type('personal'),
-                        **self.config_manager.get_calendar_provider_config('personal')
-                    )
+                    provider_config = self.config_manager.get_calendar_provider_config('personal')
+                    calendar_provider = get_calendar_provider(**provider_config)
                     
                     if not calendar_provider:
                         self.logger.error("❌ Не удалось получить провайдер календаря")
@@ -84,10 +82,8 @@ class CalendarHandler:
                 if self.config_manager.is_work_enabled():
                     self.logger.info("🏢 Обрабатываю рабочий аккаунт")
                     # Получаем провайдер календаря
-                    calendar_provider = get_calendar_provider(
-                        provider_type=self.config_manager.get_calendar_provider_type('work'),
-                        **self.config_manager.get_calendar_provider_config('work')
-                    )
+                    provider_config = self.config_manager.get_calendar_provider_config('work')
+                    calendar_provider = get_calendar_provider(**provider_config)
                     
                     if not calendar_provider:
                         self.logger.error("❌ Не удалось получить провайдер календаря")
