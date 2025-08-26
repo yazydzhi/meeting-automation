@@ -38,7 +38,7 @@ def setup_logging():
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.StreamHandler(),
-            logging.FileHandler('meeting_automation_universal.log', encoding='utf-8')
+            logging.FileHandler('logs/meeting_automation_universal.log', encoding='utf-8')
         ]
     )
     return logging.getLogger(__name__)
