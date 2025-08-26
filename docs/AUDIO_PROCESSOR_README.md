@@ -77,7 +77,7 @@ tools/test_audio_processor.py  # Тестирование модуля
 from src.audio_processor import AudioProcessor
 
 # Создаем процессор
-processor = AudioProcessor('env.work')
+processor = AudioProcessor('.env')
 
 # Обрабатываем аудио файл
 result = processor.process_audio_file('meeting.mp3', 'json')
@@ -110,7 +110,7 @@ python meeting_automation_universal.py audio --output srt --personal-only
 ### 3. Тестирование
 
 ```bash
-python tools/test_audio_processor.py audio_file.mp3 --config env.work --output json
+python tools/test_audio_processor.py audio_file.mp3 --config .env --output json
 ```
 
 ## 🔧 Настройки

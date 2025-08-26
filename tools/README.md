@@ -18,7 +18,7 @@
 python tools/auto_process_and_analyze.py "путь/к/видео.mp4" \
   --title "Название встречи" \
   --date "2025-08-21" \
-  --config env.work \
+  --config .env \
   --quality medium
 ```
 
@@ -26,7 +26,7 @@ python tools/auto_process_and_analyze.py "путь/к/видео.mp4" \
 - `video_path` - путь к видео файлу (обязательно)
 - `--title` - название встречи для анализа (обязательно)
 - `--date` - дата встречи в формате YYYY-MM-DD (обязательно)
-- `--config` - файл конфигурации (по умолчанию: env.work)
+- `--config` - файл конфигурации (по умолчанию: .env)
 - `--quality` - качество обработки: low/medium/high (по умолчанию: medium)
 - `--codec` - кодек для сжатия: h264/h265 (по умолчанию: h264)
 
@@ -36,7 +36,7 @@ python tools/auto_process_and_analyze.py \
   "/Users/azg/Downloads/meeting.mp4" \
   --title "Еженедельная встреча команды" \
   --date "2025-08-24" \
-  --config env.personal \
+  --config .env \
   --quality high
 ```
 
@@ -98,10 +98,7 @@ python tools/process_mp3_folders.py \
 
 ### ⚙️ Конфигурация
 
-Система использует конфигурационные файлы:
-- `env.work` - для рабочего аккаунта
-- `env.personal` - для личного аккаунта
-- `env.common` - общие настройки
+Система использует конфигурационный файл `.env`. Пример конфигурации можно найти в файле `.env.example`.
 
 ### 🚀 Запуск сервиса
 
@@ -125,10 +122,10 @@ tail -f logs/service.log
 
 ### Проверка конфигурации
 ```bash
-python meeting_automation_work.py test --config-only
+python src/service_manager.py --config .env --log-level DEBUG --test
 ```
 
 ### Тестирование медиа обработки
 ```bash
-python meeting_automation_work.py media --quality medium --verbose
+python meeting_automation_universal.py media --quality medium --verbose
 ```

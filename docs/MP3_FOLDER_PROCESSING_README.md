@@ -220,7 +220,7 @@ python tools/process_mp3_folders.py /path/to/folder --no-recursive --output json
 ### Конфигурационный файл
 Можно указать отдельный конфигурационный файл:
 ```bash
-python tools/process_mp3_folders.py /path/to/folder --config env.work
+python tools/process_mp3_folders.py /path/to/folder --config .env
 ```
 
 ### Переменные окружения
