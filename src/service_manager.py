@@ -1111,6 +1111,9 @@ class MeetingAutomationService:
                 personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats
             )
             
+            # Сохраняем текущее состояние
+            self._save_state(self.current_cycle_state)
+            
             # Этап 6: Отчет в Telegram и создание файлов статуса (параллельно)
             self.logger.info("📱 ЭТАП 6: Отправка уведомлений и создание файлов статуса...")
             
@@ -1420,6 +1423,40 @@ class MeetingAutomationService:
                 self.logger.warning("⚠️ Рабочий поток не завершился корректно")
         
         self.logger.info("✅ Сервис остановлен")
+    
+    def _load_previous_state(self):
+        """Загрузка предыдущего состояния сервиса."""
+        try:
+            state_file = Path('data/service_state.json')
+            if state_file.exists():
+                with open(state_file, 'r', encoding='utf-8') as f:
+                    state = json.load(f)
+                self.logger.info(f"✅ Предыдущее состояние загружено из {state_file}")
+                return state
+            else:
+                self.logger.info("⚠️ Файл состояния не найден, используем пустое состояние")
+                return {}
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка загрузки состояния: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+            return {}
+    
+    def _save_state(self, state):
+        """Сохранение состояния сервиса."""
+        try:
+            # Создаем директорию для состояния, если её нет
+            state_dir = Path('data')
+            state_dir.mkdir(exist_ok=True)
+            
+            state_file = state_dir / 'service_state.json'
+            
+            with open(state_file, 'w', encoding='utf-8') as f:
+                json.dump(state, f, ensure_ascii=False, indent=2)
+            
+            self.logger.info(f"✅ Состояние сохранено в {state_file}")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения состояния: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
 
 
 def main():
