@@ -14,10 +14,12 @@ import logging
 import threading
 import subprocess
 import traceback
+import concurrent.futures
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 import functools
+import psutil
 
 # Добавляем корневую директорию в путь для импортов
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -115,6 +117,26 @@ class MeetingAutomationService:
         self.previous_cycle_state = {}
         self.current_cycle_state = {}
         
+        # Инициализируем кэш результатов
+        self.cache = {
+            'processed_files': set(),  # Множество уже обработанных файлов
+            'transcribed_files': set(),  # Множество уже транскрибированных файлов
+            'summarized_files': set(),  # Множество уже проанализированных файлов
+            'notion_pages': {},  # Словарь страниц Notion (ключ - ID папки, значение - ID страницы)
+            'last_update': datetime.now()  # Время последнего обновления кэша
+        }
+        
+        # Инициализируем мониторинг производительности
+        self.performance_stats = {
+            'cpu_usage': [],
+            'memory_usage': [],
+            'disk_usage': [],
+            'cycle_times': []
+        }
+        
+        # Загружаем кэш из файла, если он существует
+        self._load_cache()
+        
         # Инициализируем обработчики
         self._init_handlers()
         
@@ -186,6 +208,99 @@ class MeetingAutomationService:
         
         return logger
     
+    def _load_cache(self):
+        """Загрузка кэша из файла."""
+        try:
+            cache_file = Path('data/service_cache.json')
+            if cache_file.exists():
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache_data = json.load(f)
+                
+                # Преобразуем списки обратно в множества
+                self.cache['processed_files'] = set(cache_data.get('processed_files', []))
+                self.cache['transcribed_files'] = set(cache_data.get('transcribed_files', []))
+                self.cache['summarized_files'] = set(cache_data.get('summarized_files', []))
+                self.cache['notion_pages'] = cache_data.get('notion_pages', {})
+                
+                # Преобразуем строку даты обратно в datetime
+                last_update_str = cache_data.get('last_update')
+                if last_update_str:
+                    self.cache['last_update'] = datetime.fromisoformat(last_update_str)
+                
+                self.logger.info(f"✅ Кэш загружен из {cache_file}")
+                self.logger.info(f"📊 Статистика кэша: {len(self.cache['processed_files'])} обработанных файлов, {len(self.cache['transcribed_files'])} транскрибированных файлов")
+            else:
+                self.logger.info("⚠️ Файл кэша не найден, используем пустой кэш")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка загрузки кэша: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+
+    def _save_cache(self):
+        """Сохранение кэша в файл."""
+        try:
+            # Создаем директорию для кэша, если её нет
+            cache_dir = Path('data')
+            cache_dir.mkdir(exist_ok=True)
+            
+            cache_file = cache_dir / 'service_cache.json'
+            
+            # Преобразуем множества в списки для JSON
+            cache_data = {
+                'processed_files': list(self.cache['processed_files']),
+                'transcribed_files': list(self.cache['transcribed_files']),
+                'summarized_files': list(self.cache['summarized_files']),
+                'notion_pages': self.cache['notion_pages'],
+                'last_update': datetime.now().isoformat()
+            }
+            
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(cache_data, f, ensure_ascii=False, indent=2)
+            
+            self.logger.info(f"✅ Кэш сохранен в {cache_file}")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения кэша: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+
+    def _is_file_processed(self, file_path: str) -> bool:
+        """Проверяет, был ли файл уже обработан."""
+        return file_path in self.cache['processed_files']
+
+    def _mark_file_processed(self, file_path: str):
+        """Отмечает файл как обработанный."""
+        self.cache['processed_files'].add(file_path)
+        # Сохраняем кэш после каждого обновления
+        self._save_cache()
+
+    def _is_file_transcribed(self, file_path: str) -> bool:
+        """Проверяет, был ли файл уже транскрибирован."""
+        return file_path in self.cache['transcribed_files']
+
+    def _mark_file_transcribed(self, file_path: str):
+        """Отмечает файл как транскрибированный."""
+        self.cache['transcribed_files'].add(file_path)
+        # Сохраняем кэш после каждого обновления
+        self._save_cache()
+
+    def _is_file_summarized(self, file_path: str) -> bool:
+        """Проверяет, был ли файл уже проанализирован."""
+        return file_path in self.cache['summarized_files']
+
+    def _mark_file_summarized(self, file_path: str):
+        """Отмечает файл как проанализированный."""
+        self.cache['summarized_files'].add(file_path)
+        # Сохраняем кэш после каждого обновления
+        self._save_cache()
+
+    def _get_notion_page_id(self, folder_id: str) -> Optional[str]:
+        """Получает ID страницы Notion по ID папки."""
+        return self.cache['notion_pages'].get(folder_id)
+
+    def _set_notion_page_id(self, folder_id: str, page_id: str):
+        """Устанавливает ID страницы Notion для папки."""
+        self.cache['notion_pages'][folder_id] = page_id
+        # Сохраняем кэш после каждого обновления
+        self._save_cache()
+
     @retry(max_attempts=3, delay=5, backoff=2)
     def _load_config(self):
         """Загрузка переменных окружения."""
@@ -843,6 +958,65 @@ class MeetingAutomationService:
         except Exception as e:
             return f"❌ Ошибка анализа папки: {str(e)}"
     
+    def _monitor_performance(self):
+        """Мониторинг производительности системы."""
+        try:
+            # Получаем текущие показатели системы
+            cpu_percent = psutil.cpu_percent(interval=1)
+            memory_info = psutil.virtual_memory()
+            memory_percent = memory_info.percent
+            disk_info = psutil.disk_usage('/')
+            disk_percent = disk_info.percent
+            
+            # Добавляем показатели в статистику
+            self.performance_stats['cpu_usage'].append(cpu_percent)
+            self.performance_stats['memory_usage'].append(memory_percent)
+            self.performance_stats['disk_usage'].append(disk_percent)
+            
+            # Ограничиваем размер списков
+            max_stats = 100
+            if len(self.performance_stats['cpu_usage']) > max_stats:
+                self.performance_stats['cpu_usage'] = self.performance_stats['cpu_usage'][-max_stats:]
+            if len(self.performance_stats['memory_usage']) > max_stats:
+                self.performance_stats['memory_usage'] = self.performance_stats['memory_usage'][-max_stats:]
+            if len(self.performance_stats['disk_usage']) > max_stats:
+                self.performance_stats['disk_usage'] = self.performance_stats['disk_usage'][-max_stats:]
+            
+            # Логируем текущие показатели
+            self.logger.info(f"🖥️ Производительность системы:")
+            self.logger.info(f"   CPU: {cpu_percent:.1f}%")
+            self.logger.info(f"   Память: {memory_percent:.1f}% ({memory_info.used / (1024 ** 3):.1f} ГБ / {memory_info.total / (1024 ** 3):.1f} ГБ)")
+            self.logger.info(f"   Диск: {disk_percent:.1f}% ({disk_info.used / (1024 ** 3):.1f} ГБ / {disk_info.total / (1024 ** 3):.1f} ГБ)")
+            
+            # Сохраняем статистику производительности в файл
+            self._save_performance_stats()
+            
+            return {
+                'cpu_percent': cpu_percent,
+                'memory_percent': memory_percent,
+                'disk_percent': disk_percent
+            }
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка мониторинга производительности: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+            return {}
+
+    def _save_performance_stats(self):
+        """Сохранение статистики производительности в файл."""
+        try:
+            # Создаем директорию для статистики, если её нет
+            stats_dir = Path('data')
+            stats_dir.mkdir(exist_ok=True)
+            
+            stats_file = stats_dir / 'performance_stats.json'
+            
+            # Сохраняем статистику в файл
+            with open(stats_file, 'w', encoding='utf-8') as f:
+                json.dump(self.performance_stats, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения статистики производительности: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+    
     def run_service_cycle(self):
         """Основной цикл работы сервиса."""
         try:
@@ -850,33 +1024,50 @@ class MeetingAutomationService:
             self.logger.info("🔄 Запуск цикла обработки...")
             self.logger.info(f"⏰ Текущее время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
+            # Мониторинг производительности в начале цикла
+            self._monitor_performance()
+            
             # Загружаем предыдущее состояние
             self.previous_cycle_state = self._load_previous_state()
+            
+            # Обновляем кэш перед запуском цикла
+            self._load_cache()
             
             # Этап 1: Календарь → создание папки, записи в Notion
             self.logger.info("📅 ЭТАП 1: Обработка календаря и создание папок встреч...")
             personal_stats = {"status": "skipped", "output": ""}
             work_stats = {"status": "skipped", "output": ""}
             
-            # Запускаем автоматизацию для личного аккаунта
-            if self.config_manager and self.config_manager.is_personal_enabled():
-                self.logger.info("👤 Обрабатываю личный аккаунт...")
-                personal_start = time.time()
-                personal_stats = self.run_personal_automation()
-                personal_duration = time.time() - personal_start
-                self.logger.info(f"⏱️ Время обработки личного аккаунта: {personal_duration:.2f} секунд")
-            else:
-                self.logger.info("⏭️ Личный аккаунт пропущен (отключен в конфигурации)")
-            
-            # Запускаем автоматизацию для рабочего аккаунта
-            if self.config_manager and self.config_manager.is_work_enabled():
-                self.logger.info("🏢 Обрабатываю рабочий аккаунт...")
-                work_start = time.time()
-                work_stats = self.run_work_automation()
-                work_duration = time.time() - work_start
-                self.logger.info(f"⏱️ Время обработки рабочего аккаунта: {work_duration:.2f} секунд")
-            else:
-                self.logger.info("⏭️ Рабочий аккаунт пропущен (отключен в конфигурации)")
+            # Запускаем автоматизацию для обоих аккаунтов параллельно
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                # Запускаем задачи параллельно
+                personal_future = None
+                work_future = None
+                
+                if self.config_manager and self.config_manager.is_personal_enabled():
+                    self.logger.info("👤 Запускаю обработку личного аккаунта (параллельно)...")
+                    personal_future = executor.submit(self.run_personal_automation)
+                else:
+                    self.logger.info("⏭️ Личный аккаунт пропущен (отключен в конфигурации)")
+                
+                if self.config_manager and self.config_manager.is_work_enabled():
+                    self.logger.info("🏢 Запускаю обработку рабочего аккаунта (параллельно)...")
+                    work_future = executor.submit(self.run_work_automation)
+                else:
+                    self.logger.info("⏭️ Рабочий аккаунт пропущен (отключен в конфигурации)")
+                
+                # Получаем результаты
+                if personal_future:
+                    personal_start = time.time()
+                    personal_stats = personal_future.result()
+                    personal_duration = time.time() - personal_start
+                    self.logger.info(f"⏱️ Время обработки личного аккаунта: {personal_duration:.2f} секунд")
+                
+                if work_future:
+                    work_start = time.time()
+                    work_stats = work_future.result()
+                    work_duration = time.time() - work_start
+                    self.logger.info(f"⏱️ Время обработки рабочего аккаунта: {work_duration:.2f} секунд")
             
             # Этап 2: Сжатие медиа → выделение MP3
             self.logger.info("🎬 ЭТАП 2: Обработка медиа файлов...")
@@ -916,27 +1107,37 @@ class MeetingAutomationService:
                 personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats
             )
             
-            # Этап 6: Отчет в Telegram
-            self.logger.info("📱 ЭТАП 6: Отправка уведомлений в Telegram...")
-            telegram_start = time.time()
-            telegram_stats = self.send_telegram_notifications(
-                self.current_cycle_state, self.previous_cycle_state
-            )
-            telegram_duration = time.time() - telegram_start
-            self.logger.info(f"⏱️ Время отправки уведомлений: {telegram_duration:.2f} секунд")
+            # Этап 6: Отчет в Telegram и создание файлов статуса (параллельно)
+            self.logger.info("📱 ЭТАП 6: Отправка уведомлений и создание файлов статуса...")
             
-            # Создание файлов статуса
-            self.logger.info("📁 Создание файлов статуса...")
-            status_start = time.time()
-            self.create_status_files()
-            status_duration = time.time() - status_start
-            self.logger.info(f"⏱️ Время создания файлов статуса: {status_duration:.2f} секунд")
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
+                # Запускаем задачи параллельно
+                telegram_future = executor.submit(self.send_telegram_notifications, self.current_cycle_state, self.previous_cycle_state)
+                status_future = executor.submit(self.create_status_files)
+                
+                # Получаем результаты
+                telegram_start = time.time()
+                telegram_stats = telegram_future.result()
+                telegram_duration = time.time() - telegram_start
+                self.logger.info(f"⏱️ Время отправки уведомлений: {telegram_duration:.2f} секунд")
+                
+                status_start = time.time()
+                status_future.result()
+                status_duration = time.time() - status_start
+                self.logger.info(f"⏱️ Время создания файлов статуса: {status_duration:.2f} секунд")
             
             # Сохраняем текущее состояние для следующего цикла
             self._save_current_state(self.current_cycle_state)
             
+            # Сохраняем кэш после выполнения цикла
+            self._save_cache()
+            
             # Логируем результаты
             total_duration = time.time() - start_time
+            self.performance_stats['cycle_times'].append(total_duration)
+            if len(self.performance_stats['cycle_times']) > 100:
+                self.performance_stats['cycle_times'] = self.performance_stats['cycle_times'][-100:]
+            
             self.logger.info(f"📊 РЕЗУЛЬТАТЫ ЦИКЛА:")
             self.logger.info(f"   👤 Личный аккаунт: {personal_stats['status']}")
             self.logger.info(f"   🏢 Рабочий аккаунт: {work_stats['status']}")
@@ -947,10 +1148,14 @@ class MeetingAutomationService:
             self.logger.info(f"   📱 Telegram: {telegram_stats.get('status', 'unknown')}")
             self.logger.info(f"⏱️ ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ ЦИКЛА: {total_duration:.2f} секунд")
             
+            # Сохраняем статистику производительности
+            self._save_performance_stats()
+            
             self.logger.info("✅ Цикл обработки завершен успешно")
             
         except Exception as e:
             self.logger.error(f"❌ Критическая ошибка в цикле сервиса: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process_summaries(self) -> Dict[str, Any]:
