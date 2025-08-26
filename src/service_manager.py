@@ -99,7 +99,7 @@ class MeetingAutomationService:
         self.media_check_interval = media_interval
         
         # Настраиваем логирование
-        self._setup_logging(log_level)
+        self.logger = self._setup_logging(log_level)
         self.logger.info("🚀 Инициализация менеджера сервиса...")
         
         # Загружаем конфигурацию
