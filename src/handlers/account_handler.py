@@ -27,6 +27,18 @@ class AccountHandler(BaseHandler):
         super().__init__(config_manager, logger)
         self.calendar_handler = calendar_handler
     
+    def process(self, account_type: str = 'personal') -> Dict[str, Any]:
+        """
+        Основной метод обработки (реализация абстрактного метода).
+        
+        Args:
+            account_type: Тип аккаунта ('personal' или 'work')
+            
+        Returns:
+            Результат обработки аккаунта
+        """
+        return self.process_account(account_type)
+    
     @retry(max_attempts=2, delay=3, backoff=2)
     def process_account(self, account_type: str) -> Dict[str, Any]:
         """
