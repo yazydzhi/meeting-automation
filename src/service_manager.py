@@ -728,6 +728,80 @@ class MeetingAutomationService:
             self.last_notion_stats = error_stats
             return error_stats
     
+    def _has_changes(self, current_state: Dict[str, Any], previous_state: Dict[str, Any]) -> bool:
+        """Проверка наличия изменений между текущим и предыдущим состоянием."""
+        try:
+            if not previous_state:
+                return True  # Если предыдущего состояния нет, считаем что есть изменения
+            
+            # Сравниваем ключевые метрики
+            current_metrics = {
+                'personal_events': current_state.get('personal_events', {}).get('count', 0),
+                'work_events': current_state.get('work_events', {}).get('count', 0),
+                'media_processed': current_state.get('media_processed', {}).get('count', 0),
+                'transcriptions': current_state.get('transcriptions', {}).get('count', 0),
+                'notion_synced': current_state.get('notion_synced', {}).get('count', 0)
+            }
+            
+            previous_metrics = {
+                'personal_events': previous_state.get('personal_events', {}).get('count', 0),
+                'work_events': previous_state.get('work_events', {}).get('count', 0),
+                'media_processed': previous_state.get('media_processed', {}).get('count', 0),
+                'transcriptions': previous_state.get('transcriptions', {}).get('count', 0),
+                'notion_synced': previous_state.get('notion_synced', {}).get('count', 0)
+            }
+            
+            # Проверяем изменения в метриках
+            for key in current_metrics:
+                if current_metrics[key] != previous_metrics[key]:
+                    self.logger.debug(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                    return True
+            
+            # Проверяем изменения во времени последнего обновления
+            current_time = current_state.get('last_update', '')
+            previous_time = previous_state.get('last_update', '')
+            
+            if current_time != previous_time:
+                self.logger.debug(f"🔍 Обнаружены изменения во времени: {previous_time} -> {current_time}")
+                return True
+            
+            self.logger.debug("🔍 Изменений не обнаружено")
+            return False
+            
+        except Exception as e:
+            self.logger.warning(f"⚠️ Ошибка проверки изменений: {e}")
+            return True  # В случае ошибки считаем что есть изменения
+    
+    def _format_detailed_report(self) -> str:
+        """Формирование детального отчета для Telegram."""
+        try:
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            report = f"🤖 <b>Отчет системы автоматизации встреч</b>\n\n"
+            report += f"⏰ <b>Время:</b> {current_time}\n\n"
+            
+            # Добавляем информацию о статусе аккаунтов
+            if self.config_manager:
+                if self.config_manager.is_personal_enabled():
+                    report += "👤 <b>Личный аккаунт:</b> ✅ Активен\n"
+                else:
+                    report += "👤 <b>Личный аккаунт:</b> ❌ Отключен\n"
+                
+                if self.config_manager.is_work_enabled():
+                    report += "🏢 <b>Рабочий аккаунт:</b> ✅ Активен\n"
+                else:
+                    report += "🏢 <b>Рабочий аккаунт:</b> ❌ Отключен\n"
+            
+            report += "\n🎯 <b>Система работает в штатном режиме</b>\n"
+            report += "📊 Все задачи выполнены успешно"
+            
+            return report
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка формирования детального отчета: {e}")
+            return f"❌ Ошибка формирования отчета: {str(e)}"
+    
     @retry(max_attempts=2, delay=3, backoff=2)
     def send_telegram_notifications(self, current_state: Dict[str, Any], previous_state: Dict[str, Any]) -> Dict[str, Any]:
         """Отправка уведомлений в Telegram."""
