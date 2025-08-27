@@ -468,15 +468,19 @@ def create_simple_notion_page(
         end_time = event_data.get("end_time", "")
         
         # Создаем объект даты с временем
+        # Время уже конвертировано в локальную таймзону, не добавляем +03:00
         date_obj = {
-            "start": f"{date_str}T{start_time}:00+03:00"  # +03:00 для московского времени
+            "start": f"{date_str}T{start_time}:00"  # Без таймзоны, Notion использует локальную
         }
         
         # Добавляем время окончания, если есть
         if end_time:
-            date_obj["end"] = f"{date_str}T{end_time}:00+03:00"
+            date_obj["end"] = f"{date_str}T{end_time}:00"
         
         notion_properties["Date"] = {"date": date_obj}
+        
+        if logger:
+            logger.info(f"🕐 Создаю событие в Notion: {date_str} {start_time}-{end_time}")
     elif event_data.get("date"):
         # Если есть только дата без времени
         notion_properties["Date"] = {

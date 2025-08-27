@@ -196,15 +196,31 @@ class ConfigManager:
     def get_calendar_provider_config(self, account_type: str = 'personal') -> Dict[str, Any]:
         """Получить конфигурацию для текущего провайдера календаря указанного аккаунта."""
         if account_type == 'personal':
-            return {
+            config = {
                 'provider_type': self.config['accounts']['personal']['calendar_provider'],
                 'calendar_url': self.config['accounts']['personal']['ical_calendar_url']
             }
+            
+            # Добавляем timezone для Google Calendar API
+            if config['provider_type'] == 'google_api':
+                config['credentials_path'] = self.config['accounts']['personal'].get('google_credentials_path', '')
+                config['calendar_id'] = self.config['accounts']['personal'].get('google_calendar_id', '')
+                config['timezone'] = self.config['general'].get('timezone', 'Europe/Moscow')
+            
+            return config
         elif account_type == 'work':
-            return {
+            config = {
                 'provider_type': self.config['accounts']['work']['calendar_provider'],
                 'calendar_url': self.config['accounts']['work']['ical_calendar_url']
             }
+            
+            # Добавляем timezone для Google Calendar API
+            if config['provider_type'] == 'google_api':
+                config['credentials_path'] = self.config['accounts']['work'].get('google_credentials_path', '')
+                config['calendar_id'] = self.config['accounts']['work'].get('google_calendar_id', '')
+                config['timezone'] = self.config['general'].get('timezone', 'Europe/Moscow')
+            
+            return config
         return {}
     
     def get_drive_provider_config(self, account_type: str = 'personal') -> Dict[str, Any]:

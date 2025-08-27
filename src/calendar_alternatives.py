@@ -8,13 +8,45 @@ import os
 import re
 import json
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from pathlib import Path
 import logging
+import pytz
 
 logger = logging.getLogger(__name__)
+
+def convert_utc_to_local(utc_dt: datetime, local_timezone: str = 'Europe/Moscow') -> datetime:
+    """
+    Конвертирует время из UTC в локальную таймзону.
+    
+    Args:
+        utc_dt: Время в UTC
+        local_timezone: Локальная таймзона (по умолчанию Europe/Moscow)
+        
+    Returns:
+        Время в локальной таймзоне
+    """
+    try:
+        # Создаем timezone объект для UTC
+        utc_tz = timezone.utc
+        
+        # Если время не имеет timezone, считаем его UTC
+        if utc_dt.tzinfo is None:
+            utc_dt = utc_dt.replace(tzinfo=utc_tz)
+        
+        # Конвертируем в локальную таймзону
+        local_tz = pytz.timezone(local_timezone)
+        local_dt = utc_dt.astimezone(local_tz)
+        
+        logger.debug(f"🕐 Конвертация времени: {utc_dt} UTC → {local_dt} {local_timezone}")
+        return local_dt
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка конвертации времени {utc_dt}: {e}")
+        # В случае ошибки возвращаем исходное время
+        return utc_dt
 
 @dataclass
 class CalendarEvent:
@@ -56,9 +88,10 @@ class CalendarProvider:
 class GoogleCalendarAPIProvider(CalendarProvider):
     """Стандартный провайдер Google Calendar API."""
     
-    def __init__(self, credentials_path: str, calendar_id: str):
+    def __init__(self, credentials_path: str, calendar_id: str, timezone: str = 'Europe/Moscow'):
         self.credentials_path = credentials_path
         self.calendar_id = calendar_id
+        self.timezone = timezone
         self.service = None
     
     def _get_service(self):
@@ -103,9 +136,25 @@ class GoogleCalendarAPIProvider(CalendarProvider):
                 
                 # Парсим время
                 if 'T' in start:
-                    start_dt = datetime.fromisoformat(start.replace('Z', '+00:00'))
-                    end_dt = datetime.fromisoformat(end.replace('Z', '+00:00'))
+                    # Google Calendar возвращает время в UTC (с 'Z' на конце)
+                    # Правильно парсим UTC время
+                    if start.endswith('Z'):
+                        start_dt = datetime.fromisoformat(start[:-1]).replace(tzinfo=timezone.utc)
+                    else:
+                        start_dt = datetime.fromisoformat(start)
+                    
+                    if end.endswith('Z'):
+                        end_dt = datetime.fromisoformat(end[:-1]).replace(tzinfo=timezone.utc)
+                    else:
+                        end_dt = datetime.fromisoformat(end)
+                    
+                    # Конвертируем из UTC в локальную таймзону
+                    start_dt = convert_utc_to_local(start_dt, self.timezone)
+                    end_dt = convert_utc_to_local(end_dt, self.timezone)
+                    
+                    logger.debug(f"🕐 Событие '{event.get('summary', 'Без названия')}': {start_dt} → {end_dt} ({self.timezone})")
                 else:
+                    # Для событий без времени (весь день)
                     start_dt = datetime.fromisoformat(start)
                     end_dt = datetime.fromisoformat(end)
                 
@@ -718,7 +767,8 @@ def get_calendar_provider(provider_type: str, **kwargs) -> CalendarProvider:
     if provider_type == 'google_api':
         return GoogleCalendarAPIProvider(
             kwargs.get('credentials_path', ''),
-            kwargs.get('calendar_id', '')
+            kwargs.get('calendar_id', ''),
+            kwargs.get('timezone', 'Europe/Moscow')
         )
     elif provider_type == 'notion':
         return NotionCalendarProvider(
