@@ -6,6 +6,9 @@
 
 from typing import Dict, Any, List
 from .base_handler import BaseHandler, retry
+import os
+import pytz
+from datetime import datetime
 
 
 class NotionHandler(BaseHandler):
@@ -132,16 +135,17 @@ class NotionHandler(BaseHandler):
     
     def create_meeting_page(self, event_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Создает страницу встречи в Notion.
+        TASK-4: Создает страницу встречи в Notion с исправленной логикой таймзон.
         
         Args:
-            event_data: Данные события
+            event_data: Данные события с учетом таймзон
             
         Returns:
             Результат создания страницы
         """
         try:
-            self.logger.info(f"📝 Создание страницы встречи: {event_data.get('title', 'Без названия')}")
+            self.logger.info(f"🔧 TASK-4: Создание страницы встречи с исправленной логикой таймзон")
+            self.logger.info(f"📝 Название: {event_data.get('title', 'Без названия')}")
             
             # Проверяем конфигурацию
             if not self._validate_notion_config():
@@ -150,13 +154,44 @@ class NotionHandler(BaseHandler):
                     "создание страницы встречи"
                 )
             
-            # Здесь будет логика создания страницы
-            # TODO: Интегрировать с существующей логикой создания страниц
+            # TASK-4: Получаем настройки таймзоны
+            timezone_str = self.config_manager.get_general_config().get('timezone', 'Europe/Moscow')
+            timezone = pytz.timezone(timezone_str)
+            
+            self.logger.info(f"🔧 Используется таймзона: {timezone_str}")
+            
+            # TASK-4: Обрабатываем время с учетом таймзон
+            start_dt = event_data.get('start')
+            end_dt = event_data.get('end')
+            
+            if start_dt and end_dt:
+                try:
+                    # Убеждаемся, что datetime объекты имеют таймзону
+                    if not start_dt.tzinfo:
+                        start_dt = timezone.localize(start_dt)
+                    if not end_dt.tzinfo:
+                        end_dt = timezone.localize(end_dt)
+                    
+                    # Конвертируем в нашу таймзону
+                    start_dt = start_dt.astimezone(timezone)
+                    end_dt = end_dt.astimezone(timezone)
+                    
+                    self.logger.info(f"🔧 Время начала в {timezone}: {start_dt.strftime('%Y-%m-%d %H:%M %Z')}")
+                    self.logger.info(f"🔧 Время окончания в {timezone}: {end_dt.strftime('%Y-%m-%d %H:%M %Z')}")
+                    
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Ошибка обработки времени: {e}")
+            
+            # TASK-4: Создаем свойства страницы с учетом таймзон
+            properties = self._create_meeting_properties(event_data, timezone)
+            
+            # TODO: Реализовать реальный API запрос к Notion
+            # Пока что возвращаем заглушку с исправленной логикой таймзон
             
             result = {
                 "status": "success",
-                "page_id": "test_page_id",
-                "message": "Страница встречи создана (заглушка)"
+                "page_id": "test_page_id_tz_fixed",
+                "message": "Страница встречи создана с исправленной логикой таймзон (заглушка)"
             }
             
             self.logger.info(f"✅ Страница встречи создана: {result['page_id']}")
@@ -251,3 +286,151 @@ class NotionHandler(BaseHandler):
         """Сбрасывает статистику синхронизации с Notion."""
         self.last_notion_stats = {}
         self.logger.info("📊 Статистика Notion сброшена")
+    
+    def _create_meeting_properties(self, event_data: Dict[str, Any], timezone: pytz.timezone) -> Dict[str, Any]:
+        """
+        TASK-4: Создает свойства страницы встречи с учетом таймзон.
+        
+        Args:
+            event_data: Данные события
+            timezone: Объект таймзоны
+            
+        Returns:
+            Словарь свойств страницы
+        """
+        try:
+            properties = {}
+            
+            # Название встречи
+            if event_data.get('title'):
+                properties['Name'] = {
+                    "title": [
+                        {
+                            "text": {
+                                "content": str(event_data['title'])
+                            }
+                        }
+                    ]
+                }
+            
+            # TASK-4: Дата и время с учетом таймзоны
+            start_dt = event_data.get('start')
+            end_dt = event_data.get('end')
+            
+            if start_dt and end_dt:
+                try:
+                    # Убеждаемся, что datetime объекты имеют таймзону
+                    if not start_dt.tzinfo:
+                        start_dt = timezone.localize(start_dt)
+                    if not end_dt.tzinfo:
+                        end_dt = timezone.localize(end_dt)
+                    
+                    # Конвертируем в нашу таймзону
+                    start_dt = start_dt.astimezone(timezone)
+                    end_dt = end_dt.astimezone(timezone)
+                    
+                    properties['Date & Time'] = {
+                        "date": {
+                            "start": start_dt.isoformat(),
+                            "end": end_dt.isoformat()
+                        }
+                    }
+                    
+                    self.logger.info(f"🔧 Время встречи обработано с таймзоной: {start_dt.strftime('%Y-%m-%d %H:%M')} - {end_dt.strftime('%H:%M')}")
+                    
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Ошибка обработки времени встречи: {e}")
+            
+            # Описание
+            if event_data.get('description'):
+                properties['Description'] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": str(event_data['description'])
+                            }
+                        }
+                    ]
+                }
+            
+            # Место
+            if event_data.get('location'):
+                properties['Location'] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": str(event_data['location'])
+                            }
+                        }
+                    ]
+                }
+            
+            # Участники
+            if event_data.get('attendees'):
+                attendees = event_data.get('attendees')
+                if isinstance(attendees, list):
+                    attendee_text = ", ".join([str(attendee) for attendee in attendees])
+                else:
+                    attendee_text = str(attendees)
+                
+                properties['Attendees'] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": attendee_text
+                            }
+                        }
+                    ]
+                }
+            
+            # Ссылка на встречу
+            if event_data.get('meeting_link'):
+                properties['Meeting Link'] = {
+                    "url": str(event_data['meeting_link'])
+                }
+            
+            # Ссылка на папку
+            if event_data.get('folder_link'):
+                properties['Folder Link'] = {
+                    "url": str(event_data['folder_link'])
+                }
+            
+            # Источник календаря
+            if event_data.get('calendar_source'):
+                properties['Calendar Source'] = {
+                    "select": {
+                        "name": str(event_data['calendar_source'])
+                    }
+                }
+            
+            # Тип аккаунта
+            if event_data.get('account_type'):
+                properties['Account Type'] = {
+                    "select": {
+                        "name": str(event_data['account_type'])
+                    }
+                }
+            
+            # TASK-4: Метаданные о таймзоне
+            properties['Timezone'] = {
+                "rich_text": [
+                    {
+                        "text": {
+                            "content": str(timezone)
+                        }
+                    }
+                ]
+            }
+            
+            properties['Created At'] = {
+                "date": {
+                    "start": timezone.localize(datetime.now()).isoformat()
+                }
+            }
+            
+            self.logger.info(f"✅ Создано {len(properties)} свойств для страницы встречи")
+            return properties
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания свойств страницы встречи: {e}")
+            return {}

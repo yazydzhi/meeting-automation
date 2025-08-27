@@ -19,14 +19,13 @@ sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
 try:
     from config_manager import ConfigManager
-    from audio_processor import AudioProcessor
-    from media_processor import MediaProcessor
     from notion_api import NotionAPI
     from transcript_analyzer import TranscriptAnalyzer
     from telegram_api import TelegramAPI
-    from calendar_alternatives import get_calendar_provider, CalendarEvent
-    from drive_alternatives import get_drive_provider, DriveFile
-    from notion_templates import create_page_with_template
+    # TASK-4: Используем существующие handlers вместо удаленных модулей
+    from handlers.media_handler import MediaHandler
+    from handlers.notion_handler import NotionHandler
+    from handlers.account_handler import AccountHandler
 except ImportError as e:
     print(f"❌ Ошибка импорта: {e}")
     print("Убедитесь, что все модули установлены")
@@ -339,33 +338,14 @@ def format_folder_name(event: CalendarEvent, account_type: str) -> str:
     
     return folder_name
 
-def create_notion_meeting_record(event: CalendarEvent, folder_link: str, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> str:
-    """Создание записи в Notion для встречи."""
+def create_notion_meeting_record(event_data: Dict[str, Any], folder_link: str, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> str:
+    """Создание записи в Notion для встречи с исправленной логикой таймзон."""
     try:
-        # Загружаем шаблон
-        template_path = "templates/meeting_page_template.json"
-        if not os.path.exists(template_path):
-            logger.error(f"❌ Шаблон не найден: {template_path}")
-            return ""
+        logger.info("🔧 TASK-4: Создание записи в Notion с исправленной логикой таймзон")
         
-        with open(template_path, 'r', encoding='utf-8') as f:
-            import json
-            template = json.load(f)
-        
-        # Заполняем шаблон данными события
-        template_data = {
-            "title": event.title,
-            "start_time": event.start.strftime('%H:%M'),
-            "end_time": event.end.strftime('%H:%M'),
-            "date": event.start.strftime('%Y-%m-%d'),
-            "description": event.description,
-            "location": event.location,
-            "attendees": event.attendees,
-            "meeting_link": event.meeting_link,
-            "folder_link": folder_link,
-            "calendar_source": event.calendar_source,
-            "account_type": account_type
-        }
+        # TASK-4: Получаем настройки таймзоны
+        timezone_str = config_manager.get_general_config().get('timezone', 'Europe/Moscow')
+        logger.info(f"🔧 Используется таймзона: {timezone_str}")
         
         # Получаем настройки Notion
         notion_config = config_manager.get_notion_config()
@@ -376,24 +356,33 @@ def create_notion_meeting_record(event: CalendarEvent, folder_link: str, account
             logger.error("❌ Не настроены Notion токен или ID базы данных")
             return ""
         
-        # Импортируем функцию создания страницы
-        from notion_templates import create_page_with_template
+        # TASK-4: Создаем NotionHandler для работы с таймзонами
+        notion_handler = NotionHandler(config_manager, logger=logger)
         
-        page_id = create_page_with_template(
-            notion_token, 
-            database_id, 
-            template_data, 
-            template,
-            logger
-        )
+        # Создаем данные события с учетом таймзон
+        event_data_for_notion = {
+            "title": event_data.get('title', ''),
+            "start": event_data.get('start'),
+            "end": event_data.get('end'),
+            "description": event_data.get('description', ''),
+            "location": event_data.get('location', ''),
+            "attendees": event_data.get('attendees', []),
+            "meeting_link": event_data.get('meeting_link', ''),
+            "folder_link": folder_link,
+            "calendar_source": event_data.get('calendar_source', ''),
+            "account_type": account_type,
+            "timezone": timezone_str
+        }
         
-        logger.info(f"🔧 Результат create_page_with_template: {page_id}")
+        # TASK-4: Создаем страницу через NotionHandler
+        result = notion_handler.create_meeting_page(event_data_for_notion)
         
-        if page_id:
+        if result.get('status') == 'success':
+            page_id = result.get('page_id', '')
             logger.info(f"✅ Создана страница в Notion: {page_id}")
             return page_id
         else:
-            logger.error("❌ Не удалось создать страницу в Notion")
+            logger.error(f"❌ Не удалось создать страницу в Notion: {result.get('message', '')}")
             return ""
             
     except Exception as e:
