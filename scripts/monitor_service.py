@@ -222,12 +222,144 @@ class ServiceMonitor:
                 # Собираем warning и error записи для отображения
                 warning_lines = []
                 error_lines = []
+                error_details = []  # Детальная информация об ошибках
+                
+                # Убираем дублированные строки
+                seen_lines = set()
                 
                 for line in filtered_lines:
+                    line_stripped = line.strip()
+                    
+                    # Пропускаем дублированные строки
+                    if line_stripped in seen_lines:
+                        continue
+                    seen_lines.add(line_stripped)
+                    
                     if 'WARNING' in line or '⚠️' in line:
-                        warning_lines.append(line.strip())
+                        warning_lines.append(line_stripped)
                     elif 'ERROR' in line or '❌' in line:
-                        error_lines.append(line.strip())
+                        error_lines.append(line_stripped)
+                        
+                        # Извлекаем детальную информацию об ошибке
+                        try:
+                            # Парсим время и сообщение об ошибке
+                            if ' - ' in line:
+                                timestamp_str = line.split(' - ')[0]
+                                error_content = line.split(' - ', 1)[1]
+                                
+                                # Пытаемся распарсить время
+                                try:
+                                    # Ищем время в конце строки (формат "2025-08-27 10:30:24,137")
+                                    import re
+                                    time_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2},\d{3})', timestamp_str)
+                                    if time_match:
+                                        time_str = time_match.group(1)[11:19]  # Берем только время HH:MM:SS
+                                    else:
+                                        # Пробуем стандартный формат "2025-08-27 10:23:02,655"
+                                        if len(timestamp_str) >= 19 and ',' in timestamp_str:
+                                            # Убираем миллисекунды и берем только время HH:MM:SS
+                                            time_part = timestamp_str.split(',')[0]
+                                            time_str = time_part[11:19]  # Берем только время HH:MM:SS
+                                        elif len(timestamp_str) >= 19:
+                                            time_str = timestamp_str[11:19]  # Берем только время HH:MM:SS
+                                        else:
+                                            time_str = timestamp_str
+                                except:
+                                    time_str = timestamp_str
+                                
+                                # Ищем контекст ошибки - анализируем строки перед ошибкой
+                                context = "Неизвестно"
+                                event_context = "Неизвестно"
+                                
+                                try:
+                                    # Ищем строку с ошибкой в отфильтрованных логах (с учетом \n)
+                                    error_index = -1
+                                    for i, log_line in enumerate(filtered_lines):
+                                        if log_line.strip() == line_stripped:
+                                            error_index = i
+                                            break
+                                    
+                                    if error_index >= 0:
+                                        # Ищем контекст в предыдущих строках (до 10 строк назад)
+                                        for i in range(max(0, error_index - 10), error_index):
+                                            prev_line = filtered_lines[i].strip()
+                                            if 'Обрабатываю событие:' in prev_line:
+                                                event_context = prev_line.split('Обрабатываю событие:')[-1].strip()
+                                                break
+                                            elif 'Событие:' in prev_line:
+                                                event_context = prev_line.split('Событие:')[-1].strip()
+                                                break
+                                            elif '🔄 Запуск цикла обработки' in prev_line:
+                                                event_context = "Новый цикл обработки"
+                                                break
+                                            elif '🔄 Запуск команды:' in prev_line:
+                                                event_context = "Выполнение команды"
+                                                break
+                                            elif '📅 Начинаю обработку календаря для' in prev_line:
+                                                account_type = prev_line.split('для')[-1].strip().replace('аккаунта...', '').strip()
+                                                event_context = f"Обработка календаря {account_type}"
+                                                break
+                                            elif '🔧 Начинаю создание страницы в Notion для события:' in prev_line:
+                                                event_title = prev_line.split('события:')[-1].strip()
+                                                event_context = f"Создание страницы Notion: {event_title}"
+                                                break
+                                            elif '🔄 Обрабатываю событие:' in prev_line:
+                                                event_title = prev_line.split('событие:')[-1].strip()
+                                                event_context = f"Обработка события: {event_title}"
+                                                break
+                                except:
+                                    pass
+                                
+                                # Извлекаем контекст ошибки по модулю
+                                if 'meeting_automation_service' in error_content:
+                                    context = "Основной сервис"
+                                elif 'calendar_handler' in error_content:
+                                    context = "Обработчик календаря"
+                                elif 'notion_templates' in error_content:
+                                    context = "Notion API"
+                                elif 'telegram_api' in error_content:
+                                    context = "Telegram API"
+                                elif 'drive_alternatives' in error_content:
+                                    context = "Drive API"
+                                elif 'audio_processor' in error_content:
+                                    context = "Обработка аудио"
+                                elif 'video_processor' in error_content:
+                                    context = "Обработка видео"
+                                elif 'transcription_manager' in error_content:
+                                    context = "Транскрипция"
+                                
+                                # Определяем тип ошибки
+                                error_type = "Общая ошибка"
+                                if 'Не удалось создать страницу в Notion' in error_content:
+                                    error_type = "Notion API"
+                                elif 'Ошибка отправки уведомлений' in error_content:
+                                    error_type = "Telegram"
+                                elif 'Ошибка обработки события' in error_content:
+                                    error_type = "Календарь"
+                                elif 'Ошибка создания папки' in error_content:
+                                    error_type = "Файловая система"
+                                elif 'Ошибка сохранения состояния' in error_content:
+                                    error_type = "Сохранение данных"
+                                elif 'Ошибка загрузки конфигурации' in error_content:
+                                    error_type = "Конфигурация"
+                                
+                                error_details.append({
+                                    'time': time_str,
+                                    'type': error_type,
+                                    'context': context,
+                                    'event_context': event_context,
+                                    'message': error_content.strip(),
+                                    'full_line': line.strip()
+                                })
+                        except Exception as e:
+                            # Если не удалось распарсить, добавляем базовую информацию
+                            error_details.append({
+                                'time': 'N/A',
+                                'type': 'Неизвестно',
+                                'context': 'Неизвестно',
+                                'message': line.strip(),
+                                'full_line': line.strip()
+                            })
                 
                 log_stats = {
                     'latest_file': latest_log.name,
@@ -239,7 +371,8 @@ class ServiceMonitor:
                     'file_size_mb': latest_log.stat().st_size / 1024 / 1024,
                     'service_start_time': service_start_time,
                     'warning_lines': warning_lines,
-                    'error_lines': error_lines
+                    'error_lines': error_lines,
+                    'error_details': error_details  # Добавляем детальную информацию об ошибках
                 }
                 
             except Exception as e:
@@ -453,13 +586,41 @@ class ServiceMonitor:
         
         if 'error_lines' in log_info and log_info['error_lines']:
             report += "\n❌ *ОШИБКИ:*\n"
-            for error in log_info['error_lines'][-3:]:  # Показываем последние 3
-                # Убираем timestamp для краткости
-                if ' - ' in error:
-                    error_content = error.split(' - ', 1)[1]
-                    report += f"   {error_content}\n"
-                else:
-                    report += f"   {error}\n"
+            
+            # Если есть детальная информация об ошибках, показываем её
+            if 'error_details' in log_info and log_info['error_details']:
+                # Группируем ошибки по типам
+                error_groups = {}
+                for error_detail in log_info['error_details']:
+                    error_type = error_detail['type']
+                    if error_type not in error_groups:
+                        error_groups[error_type] = []
+                    error_groups[error_type].append(error_detail)
+                
+                # Показываем ошибки по группам
+                for error_type, errors in error_groups.items():
+                    report += f"\n🔴 *{error_type}:*\n"
+                    for error in errors[-2:]:  # Показываем последние 2 ошибки каждого типа
+                        report += f"   ⏰ {error['time']} | {error['context']}\n"
+                        
+                        # Показываем контекст события, если есть
+                        if error.get('event_context') and error['event_context'] != "Неизвестно":
+                            report += f"   📅 Событие: {error['event_context']}\n"
+                        
+                        # Показываем краткое сообщение об ошибке
+                        message = error['message']
+                        if len(message) > 80:
+                            message = message[:77] + "..."
+                        report += f"   📝 {message}\n"
+            else:
+                # Fallback на старый формат
+                for error in log_info['error_lines'][-3:]:  # Показываем последние 3
+                    # Убираем timestamp для краткости
+                    if ' - ' in error:
+                        error_content = error.split(' - ', 1)[1]
+                        report += f"   {error_content}\n"
+                    else:
+                        report += f"   {error}\n"
         
         return report
     
