@@ -7,7 +7,7 @@ openai==1.101.0
 
 # Whisper (локально)
 openai-whisper==20250625
-torch==2.2.2
+torch==2.8.0
 tiktoken==0.11.0
 
 # Аудио обработка
@@ -29,6 +29,7 @@ matplotlib==3.10.5
 google-api-python-client==2.179.0
 google-auth==2.40.3
 google-auth-oauthlib==1.2.2
+google-auth-httplib2==0.2.0
 
 # Системные утилиты
 psutil==7.0.0
