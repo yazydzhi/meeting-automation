@@ -291,9 +291,10 @@ class NotionCalendarProvider(CalendarProvider):
 class WebCalendarProvider(CalendarProvider):
     """Провайдер календаря через веб-ссылки (iCal, RSS)."""
     
-    def __init__(self, calendar_url: str, calendar_type: str = 'ical'):
+    def __init__(self, calendar_url: str, calendar_type: str = 'ical', timezone: str = 'Europe/Moscow'):
         self.calendar_url = calendar_url
         self.calendar_type = calendar_type
+        self.timezone = timezone
     
     def get_events(self, start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
         """Получить события через веб-календарь."""
@@ -469,27 +470,53 @@ class WebCalendarProvider(CalendarProvider):
             if len(dt_string) == 8:  # YYYYMMDD
                 return datetime.strptime(dt_string, '%Y%m%d')
             elif len(dt_string) == 15:  # YYYYMMDDTHHMMSS
-                return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+                dt = datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+                # Считаем это время локальным (без timezone info)
+                return dt
             elif len(dt_string) == 16:  # YYYYMMDDTHHMMSSZ
-                return datetime.strptime(dt_string, '%Y%m%dT%H%M%SZ')
+                # Это UTC время (с Z на конце)
+                dt = datetime.strptime(dt_string, '%Y%m%dT%H%M%SZ')
+                # Конвертируем из UTC в локальную таймзону
+                return convert_utc_to_local(dt, self.timezone)
             elif len(dt_string) == 19:  # YYYYMMDDTHHMMSS (без Z)
-                return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+                dt = datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+                # Считаем это время локальным (без timezone info)
+                return dt
             elif len(dt_string) == 20:  # YYYYMMDDTHHMMSS (с TZID)
                 # Убираем TZID если есть
                 if 'T' in dt_string:
-                    dt_part = dt_string.split('T')[0] + 'T' + dt_string.split('T')[1]
-                    return datetime.strptime(dt_part, '%Y%m%dT%H%M%S')
+                    dt_part = dt_string.split('T')[0] + 'T' + dt_string.split('T')[1][:6]
+                    dt = datetime.strptime(dt_part, '%Y%m%dT%H%M%S')
+                    # Считаем это время локальным (без timezone info)
+                    return dt
                 else:
-                    return datetime.strptime(dt_string, '%Y%m%dT%H%M%S')
+                    return datetime.strptime(dt_string, '%Y%m%d%H%M%S')
+            elif len(dt_string) == 21:  # YYYYMMDDTHHMMSSZ (с TZID)
+                # Убираем TZID и Z
+                if 'T' in dt_string:
+                    dt_part = dt_string.split('T')[0] + 'T' + dt_string.split('T')[1][:6] + 'Z'
+                    dt = datetime.strptime(dt_part, '%Y%m%dT%H%M%SZ')
+                    # Конвертируем из UTC в локальную таймзону
+                    return convert_utc_to_local(dt, self.timezone)
+                else:
+                    return datetime.strptime(dt_string, '%Y%m%d%H%M%SZ')
             else:
-                # Попробуем парсить как ISO формат
+                # Пробуем стандартный ISO формат
                 try:
-                    return datetime.fromisoformat(dt_string.replace('Z', '+00:00'))
+                    dt = datetime.fromisoformat(dt_string)
+                    # Если время имеет timezone info, конвертируем в локальную таймзону
+                    if dt.tzinfo is not None:
+                        return convert_utc_to_local(dt, self.timezone)
+                    return dt
                 except:
-                    raise ValueError(f"Неподдерживаемый формат даты: {dt_string}")
+                    # Если не получилось, пробуем как локальное время
+                    logger.warning(f"Неизвестный формат даты в iCal: {dt_string}")
+                    return datetime.now()
+                    
         except Exception as e:
-            logger.error(f"Ошибка парсинга даты '{dt_string}': {e}")
-            raise
+            logger.error(f"Ошибка парсинга даты из iCal: {dt_string} - {e}")
+            # В случае ошибки возвращаем текущее время
+            return datetime.now()
     
     def _create_event_from_ical(self, event_data: Dict[str, str]) -> Optional[CalendarEvent]:
         """Создать событие из данных iCal."""
@@ -778,12 +805,14 @@ def get_calendar_provider(provider_type: str, **kwargs) -> CalendarProvider:
     elif provider_type == 'web_ical':
         return WebCalendarProvider(
             kwargs.get('calendar_url', ''),
-            'ical'
+            'ical',
+            kwargs.get('timezone', 'Europe/Moscow')
         )
     elif provider_type == 'web_rss':
         return WebCalendarProvider(
             kwargs.get('calendar_url', ''),
-            'rss'
+            'rss',
+            kwargs.get('timezone', 'Europe/Moscow')
         )
     elif provider_type == 'local_ics':
         return LocalCalendarProvider(

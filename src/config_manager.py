@@ -206,6 +206,9 @@ class ConfigManager:
                 config['credentials_path'] = self.config['accounts']['personal'].get('google_credentials_path', '')
                 config['calendar_id'] = self.config['accounts']['personal'].get('google_calendar_id', '')
                 config['timezone'] = self.config['general'].get('timezone', 'Europe/Moscow')
+            elif config['provider_type'] in ['web_ical', 'web_rss']:
+                # Добавляем timezone для web календарей
+                config['timezone'] = self.config['general'].get('timezone', 'Europe/Moscow')
             
             return config
         elif account_type == 'work':
@@ -218,6 +221,9 @@ class ConfigManager:
             if config['provider_type'] == 'google_api':
                 config['credentials_path'] = self.config['accounts']['work'].get('google_credentials_path', '')
                 config['calendar_id'] = self.config['accounts']['work'].get('google_calendar_id', '')
+                config['timezone'] = self.config['general'].get('timezone', 'Europe/Moscow')
+            elif config['provider_type'] in ['web_ical', 'web_rss']:
+                # Добавляем timezone для web календарей
                 config['timezone'] = self.config['general'].get('timezone', 'Europe/Moscow')
             
             return config
