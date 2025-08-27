@@ -1,0 +1,151 @@
+# TASK-3: Конфигурируемые параметры промптов для транскрипции, саммари и анализа
+# Скопируйте этот файл в .env и настройте параметры под свои нужды
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ ТРАНСКРИПЦИИ
+# =============================================================================
+
+# Промпт для транскрипции (можно переопределить базовый)
+TRANSCRIPTION_PROMPT_CUSTOM="Ты - профессиональный стенографист. Создай точную транскрипцию деловой встречи на русском языке."
+
+# Настройки качества транскрипции
+TRANSCRIPTION_TEMPERATURE=0.1
+TRANSCRIPTION_MAX_TOKENS=4000
+TRANSCRIPTION_MODEL=whisper-1
+TRANSCRIPTION_LANGUAGE=ru
+TRANSCRIPTION_INCLUDE_TIMESTAMPS=true
+TRANSCRIPTION_SPEAKER_DETECTION=true
+TRANSCRIPTION_QUALITY_NOTES=true
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ САММАРИ
+# =============================================================================
+
+# Промпт для саммари (можно переопределить базовый)
+SUMMARY_PROMPT_CUSTOM="Ты - эксперт по анализу деловых встреч. Создай краткое и информативное саммари встречи на русском языке."
+
+# Настройки качества саммари
+SUMMARY_TEMPERATURE=0.3
+SUMMARY_MAX_TOKENS=2000
+SUMMARY_MODEL=gpt-4o-mini
+SUMMARY_STYLE=professional
+SUMMARY_INCLUDE_ACTIONS=true
+SUMMARY_INCLUDE_DEADLINES=true
+SUMMARY_INCLUDE_RISKS=true
+SUMMARY_MAX_LENGTH=medium
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ АНАЛИЗА
+# =============================================================================
+
+# Промпт для анализа (можно переопределить базовый)
+ANALYSIS_PROMPT_CUSTOM="Ты - эксперт по анализу деловых встреч. Проанализируй транскрипцию и создай структурированные данные в формате JSON."
+
+# Настройки качества анализа
+ANALYSIS_TEMPERATURE=0.2
+ANALYSIS_MAX_TOKENS=4000
+ANALYSIS_MODEL=gpt-4o-mini
+ANALYSIS_INCLUDE_FINANCIAL=true
+ANALYSIS_INCLUDE_QUOTES=true
+ANALYSIS_INCLUDE_METRICS=true
+ANALYSIS_INCLUDE_RISKS=true
+ANALYSIS_OUTPUT_FORMAT=json
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ КОМПЛЕКСНОГО АНАЛИЗА
+# =============================================================================
+
+# Промпт для комплексного анализа (можно переопределить базовый)
+COMPLEX_ANALYSIS_PROMPT_CUSTOM="Ты - эксперт по анализу деловых встреч. Создай комплексный анализ нескольких встреч, выявив общие тренды и прогресс."
+
+# Настройки качества комплексного анализа
+COMPLEX_ANALYSIS_TEMPERATURE=0.4
+COMPLEX_ANALYSIS_MAX_TOKENS=6000
+COMPLEX_ANALYSIS_MODEL=gpt-4o-mini
+COMPLEX_ANALYSIS_INCLUDE_TRENDS=true
+COMPLEX_ANALYSIS_INCLUDE_PROGRESS=true
+COMPLEX_ANALYSIS_INCLUDE_RECURRING=true
+COMPLEX_ANALYSIS_INCLUDE_INSIGHTS=true
+COMPLEX_ANALYSIS_MAX_MEETINGS=10
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ ГЕНЕРАЦИИ ЗАГОЛОВКОВ
+# =============================================================================
+
+# Промпт для генерации заголовков (можно переопределить базовый)
+TITLE_GENERATION_PROMPT_CUSTOM="Ты - эксперт по созданию заголовков. Создай краткий и информативный заголовок для деловой встречи."
+
+# Настройки качества генерации заголовков
+TITLE_GENERATION_TEMPERATURE=0.5
+TITLE_GENERATION_MAX_TOKENS=100
+TITLE_GENERATION_MODEL=gpt-4o-mini
+TITLE_GENERATION_STYLE=professional
+TITLE_GENERATION_MAX_WORDS=15
+TITLE_GENERATION_INCLUDE_DATE=false
+TITLE_GENERATION_INCLUDE_PROJECT=true
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ ИЗВЛЕЧЕНИЯ КЛЮЧЕВЫХ СЛОВ
+# =============================================================================
+
+# Промпт для извлечения ключевых слов (можно переопределить базовый)
+KEYWORDS_EXTRACTION_PROMPT_CUSTOM="Ты - эксперт по анализу текста. Выдели ключевые термины и концепции из транскрипции встречи."
+
+# Настройки качества извлечения ключевых слов
+KEYWORDS_EXTRACTION_TEMPERATURE=0.1
+KEYWORDS_EXTRACTION_MAX_TOKENS=1000
+KEYWORDS_EXTRACTION_MODEL=gpt-4o-mini
+KEYWORDS_EXTRACTION_MAX_KEYWORDS=20
+KEYWORDS_EXTRACTION_INCLUDE_ABBREVIATIONS=true
+KEYWORDS_EXTRACTION_INCLUDE_TECHNICAL=true
+KEYWORDS_EXTRACTION_INCLUDE_BUSINESS=true
+
+# =============================================================================
+# НАСТРОЙКИ ПРОМПТОВ ДЛЯ АНАЛИЗА ТОНАЛЬНОСТИ
+# =============================================================================
+
+# Промпт для анализа тональности (можно переопределить базовый)
+SENTIMENT_ANALYSIS_PROMPT_CUSTOM="Ты - эксперт по анализу тональности. Определи общий тон деловой встречи и эмоциональное состояние участников."
+
+# Настройки качества анализа тональности
+SENTIMENT_ANALYSIS_TEMPERATURE=0.2
+SENTIMENT_ANALYSIS_MAX_TOKENS=2000
+SENTIMENT_ANALYSIS_MODEL=gpt-4o-mini
+SENTIMENT_ANALYSIS_INCLUDE_EMOTIONS=true
+SENTIMENT_ANALYSIS_INCLUDE_CONFLICTS=true
+SENTIMENT_ANALYSIS_INCLUDE_COLLABORATION=true
+SENTIMENT_ANALYSIS_CONFIDENCE_THRESHOLD=0.7
+
+# =============================================================================
+# ОБЩИЕ НАСТРОЙКИ ПРОМПТОВ
+# =============================================================================
+
+# Уровень качества по умолчанию (high_quality, balanced, fast)
+PROMPT_QUALITY_LEVEL=balanced
+
+# Язык по умолчанию (russian, english, mixed)
+PROMPT_LANGUAGE=russian
+
+# Стиль по умолчанию (professional, casual, technical, executive)
+PROMPT_STYLE=professional
+
+# Формат вывода по умолчанию (json, markdown, text, html)
+PROMPT_OUTPUT_FORMAT=json
+
+# Таймаут для API запросов (в секундах)
+PROMPT_API_TIMEOUT=60
+
+# Максимальное количество повторных попыток при ошибках API
+PROMPT_MAX_RETRIES=3
+
+# Задержка между повторными попытками (в секундах)
+PROMPT_RETRY_DELAY=5
+
+# Логирование промптов (true/false)
+PROMPT_LOGGING=true
+
+# Сохранение промптов в файлы для отладки (true/false)
+PROMPT_DEBUG_SAVE=false
+
+# Папка для сохранения отладочных файлов
+PROMPT_DEBUG_DIR=logs/prompts

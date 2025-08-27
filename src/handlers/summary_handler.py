@@ -8,6 +8,7 @@ import os
 from typing import Dict, Any, List
 from .process_handler import ProcessHandler
 from .base_handler import retry
+from prompt_manager import PromptManager
 
 
 class SummaryHandler(ProcessHandler):
@@ -24,6 +25,10 @@ class SummaryHandler(ProcessHandler):
         """
         super().__init__(config_manager, logger)
         self.transcription_handler = transcription_handler
+        
+        # TASK-3: Инициализация менеджера промптов
+        self.prompt_manager = PromptManager(config_manager)
+        self.logger.info("🔧 PromptManager инициализирован в SummaryHandler")
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process(self, *args, **kwargs) -> Dict[str, Any]:
@@ -164,9 +169,20 @@ class SummaryHandler(ProcessHandler):
         try:
             self.logger.info(f"📝 Обрабатываю транскрипцию: {os.path.basename(file_path)}")
             
-            # Здесь должна быть логика генерации саммари
-            # Пока что просто логируем и возвращаем True
-            # TODO: Интегрировать с существующей логикой генерации саммари
+            # TASK-3: Используем конфигурируемые промпты для генерации саммари
+            try:
+                # Получаем промпт и настройки
+                prompt = self.prompt_manager.get_prompt('summary')
+                settings = self.prompt_manager.get_prompt_settings('summary')
+                
+                self.logger.info(f"🔧 Используется промпт для саммари с настройками: {settings}")
+                
+                # TODO: Интегрировать с OpenAI API для реальной генерации саммари
+                # Пока что создаем заглушку с использованием настроек
+                
+            except Exception as e:
+                self.logger.warning(f"⚠️ Ошибка получения промпта для саммари: {e}")
+                # Продолжаем с базовой логикой
             
             # Генерируем пути к выходным файлам
             base_path = file_path.replace('_transcript.txt', '')
@@ -254,8 +270,15 @@ class SummaryHandler(ProcessHandler):
                 result["errors"] += 1
                 return result
             
-            # Создаем комплексное саммари
+            # TASK-3: Создаем комплексное саммари с использованием конфигурируемых промптов
             try:
+                # Получаем промпт для комплексного анализа
+                complex_prompt = self.prompt_manager.get_prompt('complex_analysis')
+                complex_settings = self.prompt_manager.get_prompt_settings('complex_analysis')
+                
+                self.logger.info(f"🔧 Используется промпт для комплексного анализа с настройками: {complex_settings}")
+                
+                # Создаем комплексное саммари
                 with open(complex_summary_file, 'w', encoding='utf-8') as f:
                     f.write(f"# Комплексное саммари папки: {folder_name}\n\n")
                     f.write(f"Дата создания: {self._get_current_timestamp()}\n")
@@ -274,6 +297,16 @@ class SummaryHandler(ProcessHandler):
                     for i, transcript in enumerate(all_transcripts, 1):
                         f.write(f"### {i}. {transcript['file']}\n")
                         f.write("Содержание: [Транскрипция включена в комплексный анализ]\n\n")
+                    
+                    # TASK-3: Добавляем информацию о настройках промпта
+                    f.write("## Настройки анализа:\n")
+                    f.write(f"- Модель: {complex_settings.get('model', 'Не указана')}\n")
+                    f.write(f"- Температура: {complex_settings.get('temperature', 'Не указана')}\n")
+                    f.write(f"- Максимум токенов: {complex_settings.get('max_tokens', 'Не указано')}\n")
+                    f.write(f"- Включение трендов: {complex_settings.get('include_trends', False)}\n")
+                    f.write(f"- Включение прогресса: {complex_settings.get('include_progress', False)}\n")
+                    f.write(f"- Включение повторяющихся проблем: {complex_settings.get('include_recurring', False)}\n")
+                    f.write(f"- Включение инсайтов: {complex_settings.get('include_insights', False)}\n")
                 
                 # Создаем комплексный анализ в JSON
                 complex_analysis = {

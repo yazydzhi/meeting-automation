@@ -126,10 +126,70 @@ class ConfigManager:
             'analysis_max_tokens': int(os.getenv('OPENAI_ANALYSIS_MAX_TOKENS', '4000'))
         }
         
+        # TASK-3: Настройки промптов
+        self.config['prompts'] = {
+            'transcription': {
+                'prompt_custom': os.getenv('TRANSCRIPTION_PROMPT_CUSTOM', ''),
+                'temperature': float(os.getenv('TRANSCRIPTION_TEMPERATURE', '0.1')),
+                'max_tokens': int(os.getenv('TRANSCRIPTION_MAX_TOKENS', '4000')),
+                'model': os.getenv('TRANSCRIPTION_MODEL', 'whisper-1'),
+                'language': os.getenv('TRANSCRIPTION_LANGUAGE', 'ru'),
+                'include_timestamps': os.getenv('TRANSCRIPTION_INCLUDE_TIMESTAMPS', 'true').lower() == 'true',
+                'speaker_detection': os.getenv('TRANSCRIPTION_SPEAKER_DETECTION', 'true').lower() == 'true',
+                'quality_notes': os.getenv('TRANSCRIPTION_QUALITY_NOTES', 'true').lower() == 'true'
+            },
+            'summary': {
+                'prompt_custom': os.getenv('SUMMARY_PROMPT_CUSTOM', ''),
+                'temperature': float(os.getenv('SUMMARY_TEMPERATURE', '0.3')),
+                'max_tokens': int(os.getenv('SUMMARY_MAX_TOKENS', '2000')),
+                'model': os.getenv('SUMMARY_MODEL', 'gpt-4o-mini'),
+                'style': os.getenv('SUMMARY_STYLE', 'professional'),
+                'include_actions': os.getenv('SUMMARY_INCLUDE_ACTIONS', 'true').lower() == 'true',
+                'include_deadlines': os.getenv('SUMMARY_INCLUDE_DEADLINES', 'true').lower() == 'true',
+                'include_risks': os.getenv('SUMMARY_INCLUDE_RISKS', 'true').lower() == 'true',
+                'max_length': os.getenv('SUMMARY_MAX_LENGTH', 'medium')
+            },
+            'analysis': {
+                'prompt_custom': os.getenv('ANALYSIS_PROMPT_CUSTOM', ''),
+                'temperature': float(os.getenv('ANALYSIS_TEMPERATURE', '0.2')),
+                'max_tokens': int(os.getenv('ANALYSIS_MAX_TOKENS', '4000')),
+                'model': os.getenv('ANALYSIS_MODEL', 'gpt-4o-mini'),
+                'include_financial': os.getenv('ANALYSIS_INCLUDE_FINANCIAL', 'true').lower() == 'true',
+                'include_quotes': os.getenv('ANALYSIS_INCLUDE_QUOTES', 'true').lower() == 'true',
+                'include_metrics': os.getenv('ANALYSIS_INCLUDE_METRICS', 'true').lower() == 'true',
+                'include_risks': os.getenv('ANALYSIS_INCLUDE_RISKS', 'true').lower() == 'true',
+                'output_format': os.getenv('ANALYSIS_OUTPUT_FORMAT', 'json')
+            },
+            'complex_analysis': {
+                'prompt_custom': os.getenv('COMPLEX_ANALYSIS_PROMPT_CUSTOM', ''),
+                'temperature': float(os.getenv('COMPLEX_ANALYSIS_TEMPERATURE', '0.4')),
+                'max_tokens': int(os.getenv('COMPLEX_ANALYSIS_MAX_TOKENS', '6000')),
+                'model': os.getenv('COMPLEX_ANALYSIS_MODEL', 'gpt-4o-mini'),
+                'include_trends': os.getenv('COMPLEX_ANALYSIS_INCLUDE_TRENDS', 'true').lower() == 'true',
+                'include_progress': os.getenv('COMPLEX_ANALYSIS_INCLUDE_PROGRESS', 'true').lower() == 'true',
+                'include_recurring': os.getenv('COMPLEX_ANALYSIS_INCLUDE_RECURRING', 'true').lower() == 'true',
+                'include_insights': os.getenv('COMPLEX_ANALYSIS_INCLUDE_INSIGHTS', 'true').lower() == 'true',
+                'max_meetings': int(os.getenv('COMPLEX_ANALYSIS_MAX_MEETINGS', '10'))
+            },
+            'general': {
+                'quality_level': os.getenv('PROMPT_QUALITY_LEVEL', 'balanced'),
+                'language': os.getenv('PROMPT_LANGUAGE', 'russian'),
+                'style': os.getenv('PROMPT_STYLE', 'professional'),
+                'output_format': os.getenv('PROMPT_OUTPUT_FORMAT', 'json'),
+                'api_timeout': int(os.getenv('PROMPT_API_TIMEOUT', '60')),
+                'max_retries': int(os.getenv('PROMPT_MAX_RETRIES', '3')),
+                'retry_delay': int(os.getenv('PROMPT_RETRY_DELAY', '5')),
+                'logging': os.getenv('PROMPT_LOGGING', 'true').lower() == 'true',
+                'debug_save': os.getenv('PROMPT_DEBUG_SAVE', 'false').lower() == 'true',
+                'debug_dir': os.getenv('PROMPT_DEBUG_DIR', 'logs/prompts')
+            }
+        }
+        
         logger.info(f"🔧 Настройки аккаунтов: {self.config['accounts']}")
         logger.info(f"🔧 Настройки медиа: {self.config['media']}")
         logger.info(f"🔧 Настройки Whisper: {self.config['whisper']}")
         logger.info(f"🔧 Настройки OpenAI: {self.config['openai']}")
+        logger.info(f"🔧 TASK-3: Настройки промптов загружены")
         logger.info("Конфигурация загружена")
     
     def get_accounts_config(self) -> Dict[str, Any]:
@@ -176,7 +236,30 @@ class ConfigManager:
     def get_openai_config(self) -> Dict[str, Any]:
         """Получить настройки OpenAI."""
         return self.config["openai"]
-        return self.config['notion']
+    
+    def get_prompts_config(self) -> Dict[str, Any]:
+        """Получить настройки промптов."""
+        return self.config["prompts"]
+    
+    def get_prompt_config(self, prompt_type: str) -> Dict[str, Any]:
+        """
+        Получить настройки для конкретного типа промпта.
+        
+        Args:
+            prompt_type: Тип промпта ('transcription', 'summary', 'analysis', 'complex_analysis')
+            
+        Returns:
+            Настройки промпта
+        """
+        if prompt_type in self.config["prompts"]:
+            return self.config["prompts"][prompt_type]
+        else:
+            logger.warning(f"⚠️ Неизвестный тип промпта: {prompt_type}")
+            return {}
+    
+    def get_prompt_general_config(self) -> Dict[str, Any]:
+        """Получить общие настройки промптов."""
+        return self.config["prompts"]["general"]
     def get_calendar_provider_type(self, account_type: str = 'personal') -> str:
         """Получить тип провайдера календаря для указанного аккаунта."""
         if account_type == 'personal':
