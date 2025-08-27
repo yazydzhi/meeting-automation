@@ -400,7 +400,7 @@ class CalendarHandler:
                 "location": event.location,
                 "attendees": event.attendees,
                 "meeting_link": event.meeting_link,
-                "folder_link": full_folder_path,
+                "folder_link": folder_link,
                 "calendar_source": event.calendar_source,
                 "account_type": account_type,
                 "event_id": event.event_id
