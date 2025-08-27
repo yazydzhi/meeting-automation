@@ -40,6 +40,22 @@ except ImportError as e:
     print("Убедитесь, что модуль calendar_handler доступен")
     sys.exit(1)
 
+# Импортируем новые модульные обработчики
+try:
+    from handlers import (
+        AccountHandler,
+        TranscriptionHandler,
+        SummaryHandler,
+        MediaHandler,
+        NotionHandler,
+        MetricsHandler
+    )
+    NEW_HANDLERS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Новые обработчики недоступны: {e}")
+    print("Будет использован старый код")
+    NEW_HANDLERS_AVAILABLE = False
+
 
 def retry(max_attempts=3, delay=5, backoff=2, exceptions=(Exception,)):
     """
@@ -162,23 +178,43 @@ class MeetingAutomationService:
     def _init_handlers(self):
         """Инициализация обработчиков для различных задач."""
         try:
-            # Импортируем обработчики
+            # Инициализируем старые обработчики для обратной совместимости
             try:
                 from calendar_handler import get_calendar_handler
                 from media_processor import get_media_processor
                 from transcription_handler import get_transcription_handler
                 
-                # Создаем экземпляры обработчиков
+                # Создаем экземпляры старых обработчиков
                 self.calendar_handler = get_calendar_handler(self.config_manager, self.logger)
                 self.media_processor = get_media_processor(self.config_manager, self.logger)
                 self.transcription_handler = get_transcription_handler(self.config_manager, self.logger)
                 
-                self.logger.info("✅ Обработчики инициализированы")
+                self.logger.info("✅ Старые обработчики инициализированы")
             except ImportError:
-                self.logger.warning("⚠️ Не удалось импортировать модули обработчиков. Используем универсальный скрипт.")
+                self.logger.warning("⚠️ Не удалось импортировать старые модули обработчиков.")
                 self.calendar_handler = None
                 self.media_processor = None
                 self.transcription_handler = None
+            
+            # Инициализируем новые модульные обработчики
+            if NEW_HANDLERS_AVAILABLE:
+                try:
+                    # Создаем экземпляры новых обработчиков
+                    self.account_handler = AccountHandler(self.config_manager, self.calendar_handler, self.logger)
+                    self.transcription_handler_new = TranscriptionHandler(self.config_manager, self.transcription_handler, self.logger)
+                    self.summary_handler = SummaryHandler(self.config_manager, self.transcription_handler, self.logger)
+                    self.media_handler = MediaHandler(self.config_manager, self.media_processor, self.logger)
+                    self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
+                    self.metrics_handler = MetricsHandler(self.config_manager, self.logger)
+                    
+                    self.logger.info("✅ Новые модульные обработчики инициализированы")
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка инициализации новых обработчиков: {e}")
+                    self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+                    NEW_HANDLERS_AVAILABLE = False
+            else:
+                self.logger.info("ℹ️ Новые модульные обработчики недоступны, используем старые")
+                
         except Exception as e:
             self.logger.error(f"❌ Ошибка инициализации обработчиков: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
@@ -424,7 +460,10 @@ class MeetingAutomationService:
     def run_personal_automation(self) -> Dict[str, Any]:
         """Запуск автоматизации для личного аккаунта."""
         try:
-            if self.calendar_handler:
+            # Используем новый модульный обработчик, если доступен
+            if NEW_HANDLERS_AVAILABLE and hasattr(self, 'account_handler'):
+                return self.account_handler.process_account('personal')
+            elif self.calendar_handler:
                 return self.calendar_handler.process_account('personal')
             else:
                 # Используем старый метод через universal script
@@ -456,7 +495,10 @@ class MeetingAutomationService:
     def run_work_automation(self) -> Dict[str, Any]:
         """Запуск автоматизации для рабочего аккаунта."""
         try:
-            if self.calendar_handler:
+            # Используем новый модульный обработчик, если доступен
+            if NEW_HANDLERS_AVAILABLE and hasattr(self, 'account_handler'):
+                return self.account_handler.process_account('work')
+            elif self.calendar_handler:
                 return self.calendar_handler.process_account('work')
             else:
                 # Используем старый метод через universal script
@@ -498,8 +540,13 @@ class MeetingAutomationService:
             
             self.last_media_check = current_time
             
-            if self.media_processor:
-                # Используем новый обработчик медиа
+            # Используем новый модульный обработчик, если доступен
+            if NEW_HANDLERS_AVAILABLE and hasattr(self, 'media_handler'):
+                media_stats = self.media_handler.process('medium')
+                self.last_media_stats = media_stats
+                return media_stats
+            elif self.media_processor:
+                # Используем старый обработчик медиа
                 media_stats = self.media_processor.process_media('medium')
                 self.last_media_stats = media_stats
                 return media_stats
@@ -549,8 +596,13 @@ class MeetingAutomationService:
     def process_audio_transcription(self) -> Dict[str, Any]:
         """Обработка транскрипции аудио файлов."""
         try:
-            if self.transcription_handler:
-                # Используем новый обработчик транскрипций
+            # Используем новый модульный обработчик, если доступен
+            if NEW_HANDLERS_AVAILABLE and hasattr(self, 'transcription_handler_new'):
+                transcription_stats = self.transcription_handler_new.process()
+                self.last_transcription_stats = transcription_stats
+                return transcription_stats
+            elif self.transcription_handler:
+                # Используем старый обработчик транскрипций
                 transcription_stats = self.transcription_handler.process_transcription()
                 self.last_transcription_stats = transcription_stats
                 return transcription_stats
@@ -1484,8 +1536,13 @@ class MeetingAutomationService:
     def process_summaries(self) -> Dict[str, Any]:
         """Обработка саммари для транскрипций."""
         try:
-            if self.transcription_handler:
-                # Используем новый обработчик транскрипций
+            # Используем новый модульный обработчик, если доступен
+            if NEW_HANDLERS_AVAILABLE and hasattr(self, 'summary_handler'):
+                summary_stats = self.summary_handler.process()
+                self.last_summary_stats = summary_stats
+                return summary_stats
+            elif self.transcription_handler:
+                # Используем старый обработчик транскрипций
                 summary_stats = self.transcription_handler.process_summaries()
                 self.last_summary_stats = summary_stats
                 return summary_stats
