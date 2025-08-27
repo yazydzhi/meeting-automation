@@ -471,14 +471,23 @@ def _process_folder_media(folder_path: str, account_type: str, quality: str, log
         result["total_videos"] = len(video_files)
         
         # Обрабатываем каждый видео файл
-        for video_file in video_files:
+        for i, video_file in enumerate(video_files):
             try:
                 logger.info(f"🎬 Обрабатываю видео: {os.path.basename(video_file)}")
                 
-                # Создаем имя для сжатого файла
-                base_name = os.path.splitext(video_file)[0]
-                compressed_video = f"{base_name}_compressed.mp4"
-                compressed_audio = f"{base_name}_compressed.mp3"
+                # Получаем название папки, в которой находится файл
+                file_dir = os.path.dirname(video_file)
+                folder_name = os.path.basename(file_dir)
+                
+                # Создаем имя для сжатого файла на основе названия папки
+                if len(video_files) == 1:
+                    # Если файл один, используем название папки
+                    compressed_video = os.path.join(file_dir, f"{folder_name}.mp4")
+                    compressed_audio = os.path.join(file_dir, f"{folder_name}.mp3")
+                else:
+                    # Если файлов несколько, добавляем номер
+                    compressed_video = os.path.join(file_dir, f"{folder_name}_{i+1}.mp4")
+                    compressed_audio = os.path.join(file_dir, f"{folder_name}_{i+1}.mp3")
                 
                 # Сжимаем видео
                 video_success = _compress_video(video_file, compressed_video, quality, logger)
@@ -487,7 +496,7 @@ def _process_folder_media(folder_path: str, account_type: str, quality: str, log
                     result["processed_files"].append({
                         "file": os.path.basename(video_file),
                         "type": "video",
-                        "output": compressed_video,
+                        "output": os.path.basename(compressed_video),
                         "status": "success"
                     })
                     logger.info(f"✅ Видео сжато: {os.path.basename(compressed_video)}")
@@ -499,7 +508,7 @@ def _process_folder_media(folder_path: str, account_type: str, quality: str, log
                     result["processed_files"].append({
                         "file": os.path.basename(video_file),
                         "type": "audio",
-                        "output": compressed_audio,
+                        "output": os.path.basename(compressed_audio),
                         "status": "success"
                     })
                     logger.info(f"✅ Аудио извлечено: {os.path.basename(compressed_audio)}")

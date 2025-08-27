@@ -169,15 +169,23 @@ class MediaProcessor:
                 result["total_videos"] += len(video_files)
                 
                 # Обрабатываем каждый видео файл
-                for video_file in video_files:
+                for i, video_file in enumerate(video_files):
                     try:
                         file_name = os.path.basename(video_file)
                         self.logger.info(f"🎬 Обрабатываю видео: {file_name}")
                         
-                        # Создаем имя для сжатого файла
-                        base_name = os.path.splitext(video_file)[0]
-                        compressed_video = f"{base_name}_compressed.mp4"
-                        compressed_audio = f"{base_name}_compressed.mp3"
+                        # Получаем название папки события для именования файлов
+                        event_folder_name = os.path.basename(event_folder)
+                        
+                        # Создаем имя для сжатого файла на основе названия папки
+                        if len(video_files) == 1:
+                            # Если файл один, используем название папки
+                            compressed_video = os.path.join(event_folder, f"{event_folder_name}.mp4")
+                            compressed_audio = os.path.join(event_folder, f"{event_folder_name}.mp3")
+                        else:
+                            # Если файлов несколько, добавляем номер
+                            compressed_video = os.path.join(event_folder, f"{event_folder_name}_{i+1}.mp4")
+                            compressed_audio = os.path.join(event_folder, f"{event_folder_name}_{i+1}.mp3")
                         
                         # Сжимаем видео
                         video_success = self._compress_video(video_file, compressed_video, quality)

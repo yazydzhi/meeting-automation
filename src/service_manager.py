@@ -748,9 +748,29 @@ class MeetingAutomationService:
             True если есть изменения, False если изменений нет
         """
         try:
+            self.logger.info(f"🔍 Проверка изменений: previous_state={bool(previous_state)}")
+            
             if not previous_state:
-                self.logger.debug("🔍 Предыдущее состояние отсутствует, считаем что есть изменения")
-                return True
+                # Если предыдущее состояние отсутствует, проверяем есть ли реальные изменения
+                # в текущем состоянии (обработанные события, ошибки, etc.)
+                personal_processed = current_state.get('personal_events', {}).get('processed', 0)
+                work_processed = current_state.get('work_events', {}).get('processed', 0)
+                media_processed = current_state.get('media_processed', {}).get('count', 0)
+                transcriptions = current_state.get('transcriptions', {}).get('count', 0)
+                notion_synced = current_state.get('notion_synced', {}).get('count', 0)
+                errors_count = current_state.get('errors_count', 0)
+                
+                self.logger.info(f"🔍 Метрики без предыдущего состояния: personal={personal_processed}, work={work_processed}, media={media_processed}, transcriptions={transcriptions}, notion={notion_synced}, errors={errors_count}")
+                
+                # Если есть реальные изменения, считаем что есть изменения
+                if (personal_processed > 0 or work_processed > 0 or 
+                    media_processed > 0 or transcriptions > 0 or 
+                    notion_synced > 0 or errors_count > 0):
+                    self.logger.info("🔍 Предыдущее состояние отсутствует, но есть реальные изменения")
+                    return True
+                else:
+                    self.logger.info("🔍 Предыдущее состояние отсутствует, реальных изменений нет")
+                    return False
             
             # Проверяем изменения в ключевых метриках
             current_metrics = {
@@ -771,10 +791,12 @@ class MeetingAutomationService:
                 'errors_count': previous_state.get('errors_count', 0)
             }
             
+            self.logger.info(f"🔍 Сравнение метрик: current={current_metrics}, previous={previous_metrics}")
+            
             # Проверяем изменения в метриках
             for key in current_metrics:
                 if current_metrics[key] != previous_metrics[key]:
-                    self.logger.debug(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                    self.logger.info(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
                     return True
             
             # Проверяем изменения в статусах
@@ -794,9 +816,11 @@ class MeetingAutomationService:
                 'notion_status': previous_state.get('notion_synced', {}).get('status', '')
             }
             
+            self.logger.info(f"🔍 Сравнение статусов: current={current_statuses}, previous={previous_statuses}")
+            
             for key in current_statuses:
                 if current_statuses[key] != previous_statuses[key]:
-                    self.logger.debug(f"🔍 Обнаружены изменения в статусе {key}: {previous_statuses[key]} -> {current_statuses[key]}")
+                    self.logger.info(f"🔍 Обнаружены изменения в статусе {key}: {previous_statuses[key]} -> {current_statuses[key]}")
                     return True
             
             # Проверяем изменения во времени последнего обновления
@@ -804,7 +828,7 @@ class MeetingAutomationService:
             previous_time = previous_state.get('last_update', '')
             
             if current_time != previous_time:
-                self.logger.debug(f"🔍 Обнаружены изменения во времени: {previous_time} -> {current_time}")
+                self.logger.info(f"🔍 Обнаружены изменения во времени: {previous_time} -> {current_time}")
                 return True
             
             # Проверяем, есть ли новые события (даже если они не были обработаны)
@@ -812,10 +836,10 @@ class MeetingAutomationService:
             work_new = current_state.get('work_events', {}).get('new', 0)
             
             if personal_new > 0 or work_new > 0:
-                self.logger.debug(f"🔍 Обнаружены новые события: личный {personal_new}, рабочий {work_new}")
+                self.logger.info(f"🔍 Обнаружены новые события: личный {personal_new}, рабочий {work_new}")
                 return True
             
-            self.logger.debug("🔍 Изменений не обнаружено")
+            self.logger.info("🔍 Изменений не обнаружено")
             return False
             
         except Exception as e:
@@ -868,7 +892,9 @@ class MeetingAutomationService:
                         report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
                     else:
                         report += f"   👤 <b>Личный календарь:</b> ⏭️ Новых событий нет\n"
-                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
+                        # Показываем статистику только если есть события
+                        if total > 0:
+                            report += f"      📊 Всего событий: {total}\n"
                 else:
                     report += f"   👤 <b>Личный календарь:</b> ❌ {personal_events.get('message', 'Ошибка')}\n"
                 
@@ -886,7 +912,9 @@ class MeetingAutomationService:
                         report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
                     else:
                         report += f"   🏢 <b>Рабочий календарь:</b> ⏭️ Новых событий нет\n"
-                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
+                        # Показываем статистику только если есть события
+                        if total > 0:
+                            report += f"      📊 Всего событий: {total}\n"
                 else:
                     report += f"   🏢 <b>Рабочий календарь:</b> ❌ {work_events.get('message', 'Ошибка')}\n"
                 
@@ -934,6 +962,46 @@ class MeetingAutomationService:
                 folders_processed = current_state.get('folders_processed', {})
                 if folders_processed:
                     report += f"\n📁 <b>Папки:</b> Обработано {folders_processed.get('count', 0)} папок\n"
+                
+                # Добавляем детальную информацию об ошибках, если есть
+                if errors_count > 0:
+                    report += "\n🔍 <b>Детали ошибок:</b>\n"
+                    report += "```\n"
+                    
+                    # Собираем все ошибки из компонентов
+                    error_details = []
+                    
+                    # Ошибки календаря
+                    personal_errors = personal_events.get('errors', [])
+                    work_errors = work_events.get('errors', [])
+                    if personal_errors:
+                        error_details.extend([f"Личный календарь: {error}" for error in personal_errors])
+                    if work_errors:
+                        error_details.extend([f"Рабочий календарь: {error}" for error in work_errors])
+                    
+                    # Ошибки медиа
+                    media_errors = media_processed.get('errors', [])
+                    if media_errors:
+                        error_details.extend([f"Медиа: {error}" for error in media_errors])
+                    
+                    # Ошибки транскрипции
+                    transcription_errors = transcriptions.get('errors', [])
+                    if transcription_errors:
+                        error_details.extend([f"Транскрипция: {error}" for error in transcription_errors])
+                    
+                    # Ошибки Notion
+                    notion_errors = notion_synced.get('errors', [])
+                    if notion_errors:
+                        error_details.extend([f"Notion: {error}" for error in notion_errors])
+                    
+                    # Если есть детальные ошибки, показываем их
+                    if error_details:
+                        for error in error_details[:5]:  # Показываем первые 5 ошибок
+                            report += f"{error}\n"
+                    else:
+                        report += "Общие ошибки системы\n"
+                    
+                    report += "```\n"
             
             report += "\n🎯 <b>Статус:</b> "
             if current_state and current_state.get('errors_count', 0) == 0:
@@ -955,11 +1023,22 @@ class MeetingAutomationService:
             
             # Проверяем, нужно ли отправлять уведомление
             # В режиме тестирования всегда отправляем
+            # 🔧 ИСПРАВЛЕНО: Логика проверки изменений
             force_send = self.config_manager.get('TELEGRAM_ALWAYS_SEND', False)
+            self.logger.info(f"📱 TELEGRAM_ALWAYS_SEND: {force_send}")
             
-            if not force_send and not self._has_changes(current_state, previous_state):
-                self.logger.info("⏭️ Нет изменений, пропускаю отправку уведомлений")
-                return {"status": "skipped", "message": "No changes detected"}
+            if not force_send:
+                self.logger.info("📱 Проверяю наличие изменений...")
+                has_changes = self._has_changes(current_state, previous_state)
+                self.logger.info(f"📱 Результат проверки изменений: {has_changes}")
+                
+                if not has_changes:
+                    self.logger.info("⏭️ Нет изменений, пропускаю отправку уведомлений")
+                    return {"status": "skipped", "message": "No changes detected"}
+                else:
+                    self.logger.info("📱 Обнаружены изменения, отправляю отчет")
+            else:
+                self.logger.info("📱 Принудительная отправка включена")
             
             # Формируем детальный отчет
             report = self._format_detailed_report(current_state)
@@ -1697,15 +1776,21 @@ class MeetingAutomationService:
                     "status": personal_stats.get("status", "skipped"),
                     "processed": personal_stats.get("processed", 0),
                     "total": personal_stats.get("total", 0),
+                    "new": personal_stats.get("new", 0),
+                    "already_processed": personal_stats.get("already_processed", 0),
                     "message": personal_stats.get("message", ""),
-                    "duration": personal_stats.get("duration", 0)
+                    "duration": personal_stats.get("duration", 0),
+                    "errors": personal_stats.get("errors", 0)
                 },
                 "work_events": {
                     "status": work_stats.get("status", "skipped"),
                     "processed": work_stats.get("processed", 0),
                     "total": work_stats.get("total", 0),
+                    "new": work_stats.get("new", 0),
+                    "already_processed": work_stats.get("already_processed", 0),
                     "message": work_stats.get("message", ""),
-                    "duration": work_stats.get("duration", 0)
+                    "duration": work_stats.get("duration", 0),
+                    "errors": work_stats.get("errors", 0)
                 },
                 
                 # Статистика по медиа
@@ -1714,7 +1799,8 @@ class MeetingAutomationService:
                     "count": media_stats.get("processed", 0),
                     "total_size": media_stats.get("total_size", "N/A"),
                     "duration": media_stats.get("duration", 0),
-                    "message": media_stats.get("message", "")
+                    "message": media_stats.get("message", ""),
+                    "errors": media_stats.get("errors", 0)
                 },
                 
                 # Статистика по транскрипциям
@@ -1733,7 +1819,8 @@ class MeetingAutomationService:
                     "count": notion_stats.get("processed", 0),
                     "updated": notion_stats.get("updated", 0),
                     "duration": notion_stats.get("duration", 0),
-                    "message": notion_stats.get("message", "")
+                    "message": notion_stats.get("message", ""),
+                    "errors": notion_stats.get("errors", 0)
                 },
                 
                 # Статистика по саммари

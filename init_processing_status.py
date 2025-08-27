@@ -53,8 +53,10 @@ def init_all_processing_status():
                         status.add_file(str(video_file), 'video')
                         
                         # Проверяем, есть ли уже сжатые версии
-                        compressed_video = subfolder / f"{video_file.stem}_compressed.mp4"
-                        compressed_audio = subfolder / f"{video_file.stem}_compressed.mp3"
+                        # Используем название папки вместо имени исходного файла
+                        folder_name = subfolder.name
+                        compressed_video = subfolder / f"{folder_name}.mp4"
+                        compressed_audio = subfolder / f"{folder_name}.mp3"
                         
                         # Проверяем все необходимые этапы
                         video_processed = compressed_video.exists()
