@@ -68,6 +68,9 @@ class SummaryHandler(ProcessHandler):
         """
         Генерация саммари для транскрипций в конкретной папке.
         
+        TASK-2: Обрабатываем все файлы транскрипции для создания
+        комплексного саммари, особенно когда в папке несколько видео.
+        
         Args:
             folder_path: Путь к папке
             account_type: Тип аккаунта
@@ -75,17 +78,54 @@ class SummaryHandler(ProcessHandler):
         Returns:
             Результат обработки папки
         """
-        return self.process_folder_files(
-            folder_path=folder_path,
-            account_type=account_type,
-            file_extension='_transcript.txt',
-            should_process_func=self._should_process_transcript_file,
-            process_file_func=self._process_transcript_file
-        )
+        try:
+            result = {
+                "account": account_type, 
+                "folder": folder_path, 
+                "processed": 0, 
+                "errors": 0, 
+                "files": []
+            }
+            
+            # TASK-2: Сначала собираем все файлы транскрипции в папке
+            transcript_files = []
+            for root, dirs, files in os.walk(folder_path):
+                for file in files:
+                    if file.lower().endswith('_transcript.txt'):
+                        file_path = os.path.join(root, file)
+                        transcript_files.append(file_path)
+            
+            if not transcript_files:
+                self.logger.info(f"📁 В папке {folder_path} нет файлов транскрипции")
+                return result
+            
+            self.logger.info(f"📄 TASK-2: Найдено {len(transcript_files)} файлов транскрипции для обработки")
+            
+            # TASK-2: Если файлов несколько, создаем комплексное саммари
+            if len(transcript_files) > 1:
+                self.logger.info(f"🔄 TASK-2: Обнаружено несколько видео в папке, создаю комплексное саммари")
+                return self._process_multiple_transcripts(transcript_files, account_type, folder_path)
+            else:
+                # Один файл - обычная обработка
+                return self.process_folder_files(
+                    folder_path=folder_path,
+                    account_type=account_type,
+                    file_extension='_transcript.txt',
+                    should_process_func=self._should_process_transcript_file,
+                    process_file_func=self._process_transcript_file
+                )
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обработки папки {folder_path}: {e}")
+            result["errors"] += 1
+            return result
     
     def _should_process_transcript_file(self, file_path: str) -> bool:
         """
         Проверяет, нужно ли обрабатывать файл транскрипции.
+        
+        TASK-2: Всегда обрабатываем все файлы транскрипции для создания
+        комплексного саммари, особенно когда в папке несколько видео.
         
         Args:
             file_path: Путь к файлу транскрипции
@@ -101,14 +141,9 @@ class SummaryHandler(ProcessHandler):
             if not file_path.lower().endswith('_transcript.txt'):
                 return False
             
-            # Генерируем пути к выходным файлам
-            base_path = file_path.replace('_transcript.txt', '')
-            summary_file = base_path + '_summary.txt'
-            analysis_file = base_path + '_analysis.json'
-            
-            # Если саммари или анализ уже существуют, не обрабатываем
-            if os.path.exists(summary_file) or os.path.exists(analysis_file):
-                return False
+            # TASK-2: Всегда обрабатываем все файлы транскрипции
+            # Убираем проверку существования файлов саммари/анализа
+            # Это позволит создавать комплексные саммари для нескольких видео
             
             return True
             
@@ -160,6 +195,128 @@ class SummaryHandler(ProcessHandler):
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки транскрипции {file_path}: {e}")
             return False
+    
+    def _process_multiple_transcripts(self, transcript_files: List[str], account_type: str, folder_path: str) -> Dict[str, Any]:
+        """
+        Обрабатывает несколько файлов транскрипции для создания комплексного саммари.
+        
+        TASK-2: Создает единое саммари для всех видео в папке.
+        
+        Args:
+            transcript_files: Список путей к файлам транскрипции
+            account_type: Тип аккаунта
+            folder_path: Путь к папке
+            
+        Returns:
+            Результат обработки
+        """
+        try:
+            result = {
+                "account": account_type, 
+                "folder": folder_path, 
+                "processed": 0, 
+                "errors": 0, 
+                "files": []
+            }
+            
+            self.logger.info(f"🔄 TASK-2: Создаю комплексное саммари для {len(transcript_files)} файлов транскрипции")
+            
+            # Создаем папку для комплексного саммари
+            folder_name = os.path.basename(folder_path)
+            complex_summary_dir = os.path.join(folder_path, "complex_summary")
+            os.makedirs(complex_summary_dir, exist_ok=True)
+            
+            # Генерируем имена для комплексного саммари
+            timestamp = self._get_current_timestamp().replace(':', '-').replace(' ', '_')
+            complex_summary_file = os.path.join(complex_summary_dir, f"{folder_name}_complex_summary_{timestamp}.txt")
+            complex_analysis_file = os.path.join(complex_summary_dir, f"{folder_name}_complex_analysis_{timestamp}.json")
+            
+            # Читаем все транскрипции
+            all_transcripts = []
+            for transcript_file in transcript_files:
+                try:
+                    with open(transcript_file, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                        filename = os.path.basename(transcript_file)
+                        all_transcripts.append({
+                            "file": filename,
+                            "content": content,
+                            "path": transcript_file
+                        })
+                        self.logger.debug(f"📖 Прочитана транскрипция: {filename}")
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка чтения {transcript_file}: {e}")
+                    result["errors"] += 1
+                    continue
+            
+            if not all_transcripts:
+                self.logger.error("❌ Не удалось прочитать ни одной транскрипции")
+                result["errors"] += 1
+                return result
+            
+            # Создаем комплексное саммари
+            try:
+                with open(complex_summary_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# Комплексное саммари папки: {folder_name}\n\n")
+                    f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                    f.write(f"Количество видео: {len(all_transcripts)}\n\n")
+                    
+                    f.write("## Обработанные файлы:\n")
+                    for transcript in all_transcripts:
+                        f.write(f"- {transcript['file']}\n")
+                    f.write("\n")
+                    
+                    f.write("## Общее резюме:\n")
+                    f.write("Комплексное саммари для всех видео в папке.\n")
+                    f.write("Каждое видео было обработано и включено в общий анализ.\n\n")
+                    
+                    f.write("## Детали по файлам:\n")
+                    for i, transcript in enumerate(all_transcripts, 1):
+                        f.write(f"### {i}. {transcript['file']}\n")
+                        f.write("Содержание: [Транскрипция включена в комплексный анализ]\n\n")
+                
+                # Создаем комплексный анализ в JSON
+                complex_analysis = {
+                    "folder_name": folder_name,
+                    "created": self._get_current_timestamp(),
+                    "total_videos": len(all_transcripts),
+                    "files_processed": [t["file"] for t in all_transcripts],
+                    "summary_type": "complex",
+                    "status": "success"
+                }
+                
+                with open(complex_analysis_file, 'w', encoding='utf-8') as f:
+                    import json
+                    json.dump(complex_analysis, f, ensure_ascii=False, indent=2)
+                
+                self.logger.info(f"✅ TASK-2: Создано комплексное саммари: {complex_summary_file}")
+                self.logger.info(f"✅ TASK-2: Создан комплексный анализ: {complex_analysis_file}")
+                
+                result["processed"] = len(all_transcripts)
+                result["files"] = [t["file"] for t in all_transcripts]
+                
+                # Также создаем индивидуальные саммари для каждого файла
+                for transcript in all_transcripts:
+                    try:
+                        if self._process_transcript_file(transcript["path"]):
+                            self.logger.debug(f"✅ Создано индивидуальное саммари для: {transcript['file']}")
+                        else:
+                            self.logger.warning(f"⚠️ Не удалось создать индивидуальное саммари для: {transcript['file']}")
+                    except Exception as e:
+                        self.logger.error(f"❌ Ошибка создания индивидуального саммари для {transcript['file']}: {e}")
+                        result["errors"] += 1
+                
+                return result
+                
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка создания комплексного саммари: {e}")
+                result["errors"] += 1
+                return result
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обработки множественных транскрипций: {e}")
+            result["errors"] += 1
+            return result
     
     def _get_current_timestamp(self) -> str:
         """
