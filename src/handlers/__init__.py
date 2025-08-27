@@ -7,10 +7,18 @@ from .base_handler import BaseHandler
 from .account_handler import AccountHandler
 from .process_handler import ProcessHandler
 from .metrics_handler import MetricsHandler
+from .transcription_handler import TranscriptionHandler
+from .summary_handler import SummaryHandler
+from .media_handler import MediaHandler
+from .notion_handler import NotionHandler
 
 __all__ = [
     'BaseHandler',
     'AccountHandler', 
     'ProcessHandler',
-    'MetricsHandler'
+    'MetricsHandler',
+    'TranscriptionHandler',
+    'SummaryHandler',
+    'MediaHandler',
+    'NotionHandler'
 ]
