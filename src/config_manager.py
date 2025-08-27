@@ -102,7 +102,9 @@ class ConfigManager:
             'cleanup_days': int(os.getenv('MEDIA_CLEANUP_DAYS', '30')),
             'video_compression': os.getenv('VIDEO_COMPRESSION', 'true').lower() == 'true',
             'video_quality': os.getenv('VIDEO_QUALITY', 'medium'),
-            'video_codec': os.getenv('VIDEO_CODEC', 'h264')
+            'video_codec': os.getenv('VIDEO_CODEC', 'h264'),
+            # TASK-5: Управление оригинальными видео файлами
+            'delete_original_videos': os.getenv('DELETE_ORIGINAL_VIDEOS', 'false').lower() == 'true'
         }
         
         # Настройки Whisper и транскрипции
@@ -190,6 +192,7 @@ class ConfigManager:
         logger.info(f"🔧 Настройки Whisper: {self.config['whisper']}")
         logger.info(f"🔧 Настройки OpenAI: {self.config['openai']}")
         logger.info(f"🔧 TASK-3: Настройки промптов загружены")
+        logger.info(f"🔧 TASK-5: Настройки управления оригинальными видео загружены")
         logger.info("Конфигурация загружена")
     
     def get_accounts_config(self) -> Dict[str, Any]:
@@ -215,6 +218,20 @@ class ConfigManager:
     def get_media_config(self) -> Dict[str, Any]:
         """Получить конфигурацию медиа обработки."""
         return self.config['media']
+    
+    def should_delete_original_videos(self) -> bool:
+        """
+        TASK-5: Проверяет, нужно ли удалять оригинальные видео файлы.
+        
+        Returns:
+            True если нужно удалять, False иначе
+        """
+        try:
+            media_config = self.get_media_config()
+            return media_config.get('delete_original_videos', False)
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки настройки удаления оригинальных видео: {e}")
+            return False
     
     def get_general_config(self) -> Dict[str, Any]:
         """Получить общие настройки."""

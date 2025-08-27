@@ -490,8 +490,15 @@ def _process_folder_media(folder_path: str, account_type: str, quality: str, log
                     })
                     logger.info(f"✅ Видео сжато: {os.path.basename(compressed_video)}")
                 
-                # Извлекаем аудио
-                audio_success = _extract_audio(video_file, compressed_audio, logger)
+                # TASK-5: Извлекаем аудио из сжатого видео вместо оригинального
+                if video_success:
+                    # Аудио извлекаем из сжатого видео
+                    audio_success = _extract_audio(compressed_video, compressed_audio, logger)
+                    logger.info(f"🔧 TASK-5: Аудио извлекается из сжатого видео: {os.path.basename(compressed_video)}")
+                else:
+                    # Если сжатие не удалось, извлекаем из оригинального
+                    audio_success = _extract_audio(video_file, compressed_audio, logger)
+                    logger.warning(f"⚠️ TASK-5: Сжатие не удалось, аудио извлекается из оригинального видео")
                 if audio_success:
                     result["processed"] += 1
                     result["processed_files"].append({
@@ -501,6 +508,46 @@ def _process_folder_media(folder_path: str, account_type: str, quality: str, log
                         "status": "success"
                     })
                     logger.info(f"✅ Аудио извлечено: {os.path.basename(compressed_audio)}")
+                
+                # TASK-5: Проверяем, нужно ли удалить оригинальное видео
+                if video_success and audio_success:
+                    try:
+                        # Получаем настройку из конфигурации
+                        should_delete = config_manager.should_delete_original_videos()
+                        
+                        if should_delete:
+                            logger.info(f"🔧 TASK-5: Проверяем возможность удаления оригинального видео")
+                            
+                            # Сравниваем длину видео
+                            duration_match = _compare_video_duration(video_file, compressed_video, logger)
+                            
+                            if duration_match:
+                                # Длина совпадает - удаляем оригинал
+                                try:
+                                    os.remove(video_file)
+                                    logger.info(f"🗑️ TASK-5: Оригинальное видео удалено: {os.path.basename(video_file)}")
+                                    result["processed_files"].append({
+                                        "file": os.path.basename(video_file),
+                                        "type": "deleted",
+                                        "status": "deleted",
+                                        "reason": "Длина совпадает со сжатым видео"
+                                    })
+                                except Exception as e:
+                                    logger.error(f"❌ TASK-5: Ошибка удаления оригинального видео: {e}")
+                            else:
+                                # Длина не совпадает - сохраняем оригинал
+                                logger.warning(f"⚠️ TASK-5: Оригинальное видео сохранено (длина не совпадает): {os.path.basename(video_file)}")
+                                result["processed_files"].append({
+                                    "file": os.path.basename(video_file),
+                                    "type": "preserved",
+                                    "status": "preserved",
+                                    "reason": "Длина не совпадает со сжатым видео"
+                                })
+                        else:
+                            logger.info(f"🔧 TASK-5: Удаление оригинальных видео отключено в настройках")
+                            
+                    except Exception as e:
+                        logger.error(f"❌ TASK-5: Ошибка проверки удаления оригинального видео: {e}")
                 
                 result["synced"] += 1
                 
@@ -589,6 +636,107 @@ def _extract_audio(input_file: str, output_file: str, logger: logging.Logger) ->
     except Exception as e:
         logger.error(f"❌ Ошибка извлечения аудио {input_file}: {e}")
         return False
+
+
+def _compare_video_duration(original_file: str, compressed_file: str, logger: logging.Logger) -> bool:
+    """
+    TASK-5: Сравнивает длину оригинального и сжатого видео файлов.
+    
+    Args:
+        original_file: Путь к оригинальному видео файлу
+        compressed_file: Путь к сжатому видео файлу
+        logger: Логгер для записи результатов
+        
+    Returns:
+        True если длина совпадает (с точностью до 1 секунды), False иначе
+    """
+    try:
+        logger.info(f"🔍 TASK-5: Сравнение длины видео файлов")
+        logger.info(f"   Оригинал: {os.path.basename(original_file)}")
+        logger.info(f"   Сжатый: {os.path.basename(compressed_file)}")
+        
+        # Проверяем существование файлов
+        if not os.path.exists(original_file):
+            logger.error(f"❌ Оригинальный файл не найден: {original_file}")
+            return False
+            
+        if not os.path.exists(compressed_file):
+            logger.error(f"❌ Сжатый файл не найден: {compressed_file}")
+            return False
+        
+        # Получаем длину оригинального видео
+        original_duration = _get_video_duration(original_file, logger)
+        if original_duration is None:
+            logger.error(f"❌ Не удалось получить длину оригинального видео: {original_file}")
+            return False
+        
+        # Получаем длину сжатого видео
+        compressed_duration = _get_video_duration(compressed_file, logger)
+        if compressed_duration is None:
+            logger.error(f"❌ Не удалось получить длину сжатого видео: {compressed_file}")
+            return False
+        
+        # Сравниваем длину с точностью до 1 секунды
+        duration_diff = abs(original_duration - compressed_duration)
+        logger.info(f"🔍 Длина оригинального видео: {original_duration:.2f} секунд")
+        logger.info(f"🔍 Длина сжатого видео: {compressed_duration:.2f} секунд")
+        logger.info(f"🔍 Разница: {duration_diff:.2f} секунд")
+        
+        # Считаем совпадением, если разница меньше 1 секунды
+        is_match = duration_diff < 1.0
+        
+        if is_match:
+            logger.info(f"✅ Длина видео совпадает (разница < 1 сек)")
+        else:
+            logger.warning(f"⚠️ Длина видео НЕ совпадает (разница >= 1 сек)")
+        
+        return is_match
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка сравнения длины видео: {e}")
+        return False
+
+
+def _get_video_duration(video_file: str, logger: logging.Logger) -> float:
+    """
+    TASK-5: Получает длину видео файла через FFmpeg.
+    
+    Args:
+        video_file: Путь к видео файлу
+        logger: Логгер для записи результатов
+        
+    Returns:
+        Длина видео в секундах или None в случае ошибки
+    """
+    try:
+        cmd = [
+            'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+            '-of', 'csv=p=0', video_file
+        ]
+        
+        logger.debug(f"🔍 Получение длины видео: {' '.join(cmd)}")
+        
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        if result.returncode == 0:
+            duration_str = result.stdout.strip()
+            try:
+                duration = float(duration_str)
+                logger.debug(f"🔍 Длина видео {os.path.basename(video_file)}: {duration:.2f} сек")
+                return duration
+            except ValueError:
+                logger.error(f"❌ Неверный формат длины видео: {duration_str}")
+                return None
+        else:
+            logger.error(f"❌ Ошибка получения длины видео: {result.stderr}")
+            return None
+            
+    except subprocess.TimeoutExpired:
+        logger.error(f"⏰ Таймаут получения длины видео: {video_file}")
+        return None
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения длины видео {video_file}: {e}")
+        return None
 
 def process_transcription(config_manager: ConfigManager, account_type: str, file_path: str = None, logger: logging.Logger = None):
     """Обработка транскрипции аудио файлов."""
