@@ -11,6 +11,7 @@ import time
 import json
 import signal
 import logging
+import uuid
 from logging.handlers import RotatingFileHandler
 import threading
 import subprocess
@@ -1144,7 +1145,7 @@ class MeetingAutomationService:
                 self.logger.info(f"⏱️ Время создания файлов статуса: {status_duration:.2f} секунд")
             
             # Сохраняем текущее состояние для следующего цикла
-            self._save_current_state(self.current_cycle_state)
+            self._save_state(self.current_cycle_state)
             
             # Сохраняем кэш после выполнения цикла
             self._save_cache()
