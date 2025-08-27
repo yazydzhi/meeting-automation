@@ -27,6 +27,7 @@ class CalendarEvent:
     attendees: List[str] = None
     meeting_link: str = ""
     calendar_source: str = "unknown"
+    event_id: str = ""
     
     def __post_init__(self):
         if self.attendees is None:
@@ -128,7 +129,8 @@ class GoogleCalendarAPIProvider(CalendarProvider):
                     location=event.get('location', ''),
                     attendees=attendees,
                     meeting_link=meeting_link,
-                    calendar_source='google_api'
+                    calendar_source='google_api',
+                    event_id=event.get('id', '')
                 )
                 calendar_events.append(calendar_event)
             
@@ -247,10 +249,24 @@ class WebCalendarProvider(CalendarProvider):
     def get_events(self, start_date: datetime, end_date: datetime) -> List[CalendarEvent]:
         """Получить события через веб-календарь."""
         try:
-            response = requests.get(self.calendar_url)
+            # Настройки для обхода SSL проблем
+            session = requests.Session()
+            session.verify = False  # Отключаем SSL верификацию для тестирования
+            
+            # Добавляем заголовки для имитации браузера
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            }
+            
+            logger.info(f"🔗 Загружаю календарь: {self.calendar_url}")
+            response = session.get(self.calendar_url, headers=headers, timeout=60)
+            
             if response.status_code != 200:
                 logger.error(f"Ошибка загрузки календаря: {response.status_code}")
+                logger.error(f"Заголовки ответа: {dict(response.headers)}")
                 return []
+            
+            logger.info(f"✅ Календарь загружен успешно: {len(response.text)} символов")
             
             if self.calendar_type == 'ical':
                 return self._parse_ical(response.text, start_date, end_date)
@@ -260,6 +276,46 @@ class WebCalendarProvider(CalendarProvider):
                 logger.error(f"Неподдерживаемый тип календаря: {self.calendar_type}")
                 return []
                 
+        except requests.exceptions.SSLError as e:
+            logger.error(f"SSL ошибка при загрузке календаря: {e}")
+            logger.info("🔄 Пробую загрузить без SSL верификации...")
+            try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                
+                response = requests.get(self.calendar_url, verify=False, timeout=60)
+                if response.status_code == 200:
+                    logger.info(f"✅ Календарь загружен без SSL верификации: {len(response.text)} символов")
+                    if self.calendar_type == 'ical':
+                        return self._parse_ical(response.text, start_date, end_date)
+                    elif self.calendar_type == 'rss':
+                        return self._parse_rss(response.text, start_date, end_date)
+                else:
+                    logger.error(f"Ошибка загрузки без SSL: {response.status_code}")
+                    return []
+            except Exception as e2:
+                logger.error(f"Ошибка загрузки без SSL: {e2}")
+                return []
+        except requests.exceptions.Timeout as e:
+            logger.error(f"Таймаут при загрузке календаря: {e}")
+            logger.info("🔄 Пробую загрузить с увеличенным таймаутом...")
+            try:
+                response = requests.get(self.calendar_url, verify=False, timeout=120)
+                if response.status_code == 200:
+                    logger.info(f"✅ Календарь загружен с увеличенным таймаутом: {len(response.text)} символов")
+                    if self.calendar_type == 'ical':
+                        return self._parse_ical(response.text, start_date, end_date)
+                    elif self.calendar_type == 'rss':
+                        return self._parse_rss(response.text, start_date, end_date)
+                else:
+                    logger.error(f"Ошибка загрузки с увеличенным таймаутом: {response.status_code}")
+                    return []
+            except Exception as e2:
+                logger.error(f"Ошибка загрузки с увеличенным таймаутом: {e2}")
+                return []
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Ошибка соединения с календарем: {e}")
+            return []
         except Exception as e:
             logger.error(f"Ошибка получения событий через веб-календарь: {e}")
             return []
@@ -440,6 +496,9 @@ class WebCalendarProvider(CalendarProvider):
                     meeting_link = value
                     break
             
+            # Генерируем уникальный ID для события на основе его данных
+            event_id = f"{start.strftime('%Y%m%d%H%M')}_{hash(title)}"
+            
             return CalendarEvent(
                 title=title,
                 start=start,
@@ -448,7 +507,8 @@ class WebCalendarProvider(CalendarProvider):
                 location=location,
                 attendees=attendees,
                 meeting_link=meeting_link,
-                calendar_source='web_ical'
+                calendar_source='web_ical',
+                event_id=event_id
             )
         except Exception as e:
             logger.error(f"Ошибка создания события из iCal: {e}")

@@ -382,9 +382,12 @@ def create_notion_meeting_record(event: CalendarEvent, folder_link: str, account
         page_id = create_page_with_template(
             notion_token, 
             database_id, 
-            template, 
-            template_data
+            template_data, 
+            template,
+            logger
         )
+        
+        logger.info(f"🔧 Результат create_page_with_template: {page_id}")
         
         if page_id:
             logger.info(f"✅ Создана страница в Notion: {page_id}")

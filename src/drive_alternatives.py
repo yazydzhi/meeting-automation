@@ -52,6 +52,10 @@ class DriveProvider:
     def file_exists(self, name: str, parent_id: str = None) -> bool:
         """Проверить существование файла/папки."""
         raise NotImplementedError
+    
+    def get_root_path(self) -> str:
+        """Получить корневой путь провайдера."""
+        raise NotImplementedError
 
 class GoogleDriveAPIProvider(DriveProvider):
     """Стандартный провайдер Google Drive API."""
@@ -127,6 +131,10 @@ class GoogleDriveAPIProvider(DriveProvider):
         except Exception as e:
             logger.error(f"Ошибка получения файлов через Google Drive API: {e}")
             return []
+    
+    def get_root_path(self) -> str:
+        """Получить корневой путь провайдера."""
+        return "Google Drive"  # Для Google Drive возвращаем название
     
     def download_file(self, file_id: str, local_path: str) -> bool:
         """Скачать файл через Google Drive API."""
@@ -306,6 +314,10 @@ class LocalDriveProvider(DriveProvider):
         except Exception as e:
             logger.error(f"Ошибка копирования файла {file_id}: {e}")
             return False
+    
+    def get_root_path(self) -> str:
+        """Получить корневой путь провайдера."""
+        return str(self.root_path)
     
     def upload_file(self, local_path: str, folder_id: str, filename: str = None) -> Optional[str]:
         """Копировать файл в локальную файловую систему."""

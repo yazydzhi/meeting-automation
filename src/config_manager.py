@@ -198,12 +198,12 @@ class ConfigManager:
         if account_type == 'personal':
             return {
                 'provider_type': self.config['accounts']['personal']['calendar_provider'],
-                'ical_calendar_url': self.config['accounts']['personal']['ical_calendar_url']
+                'calendar_url': self.config['accounts']['personal']['ical_calendar_url']
             }
         elif account_type == 'work':
             return {
                 'provider_type': self.config['accounts']['work']['calendar_provider'],
-                'ical_calendar_url': self.config['accounts']['work']['ical_calendar_url']
+                'calendar_url': self.config['accounts']['work']['ical_calendar_url']
             }
         return {}
     
@@ -212,12 +212,12 @@ class ConfigManager:
         if account_type == 'personal':
             return {
                 'provider_type': self.config['accounts']['personal']['drive_provider'],
-                'local_root_path': self.config['accounts']['personal']['local_drive_root']
+                'root_path': self.config['accounts']['personal']['local_drive_root']
             }
         elif account_type == 'work':
             return {
                 'provider_type': self.config['accounts']['work']['drive_provider'],
-                'local_root_path': self.config['accounts']['work']['local_drive_root']
+                'root_path': self.config['accounts']['work']['local_drive_root']
             }
         return {}
     

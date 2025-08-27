@@ -136,14 +136,15 @@ class CalendarHandler:
         try:
             self.logger.info(f"📅 Начинаю обработку календаря для {account_type} аккаунта...")
             
-            # Получаем события на 2 дня вперед
-            days = 2
+            # Получаем события на 2 дня назад + 2 дня вперед (всего 5 дней)
+            days_back = 2
+            days_forward = 2
             today = datetime.now().date()
-            start_date = datetime.combine(today, datetime.min.time())
-            end_date = start_date + timedelta(days=days)
+            start_date = datetime.combine(today - timedelta(days=days_back), datetime.min.time())
+            end_date = datetime.combine(today + timedelta(days=days_forward), datetime.max.time())
             
             events = calendar_provider.get_events(start_date, end_date)
-            self.logger.info(f"📅 Найдено событий: {len(events)}")
+            self.logger.info(f"📅 Найдено событий за период {start_date.strftime('%Y-%m-%d')} - {end_date.strftime('%Y-%m-%d')}: {len(events)}")
             
             # Фильтруем события
             filtered_events, excluded_events = self.filter_events(events, account_type)
@@ -306,8 +307,9 @@ class CalendarHandler:
                     folder_created = False
             
             # Создаем страницу в Notion
-            folder_link = f"file://{folder_name}" if folder_created else ""
-            notion_page_id = self.create_notion_meeting_record(event, folder_link, account_type)
+            # Передаем полный путь к папке для сохранения в Notion
+            full_folder_path = os.path.join(drive_provider.get_root_path() if drive_provider else "", folder_name) if folder_created else ""
+            notion_page_id = self.create_notion_meeting_record(event, full_folder_path, account_type)
             
             # Формируем результат
             result = {
@@ -318,7 +320,7 @@ class CalendarHandler:
                 'has_meeting_link': bool(event.meeting_link),
                 'drive_folder_created': folder_created,
                 'notion_page_id': notion_page_id,
-                'drive_folder_link': folder_link
+                'drive_folder_link': full_folder_path
             }
             
             self.logger.info(f"✅ Событие обработано: {event.title}")
@@ -374,11 +376,15 @@ class CalendarHandler:
             ID созданной страницы в Notion
         """
         try:
+            self.logger.info(f"🔧 Начинаю создание страницы в Notion для события: {event.title}")
+            
             # Загружаем шаблон
             template_path = "templates/meeting_page_template.json"
             if not os.path.exists(template_path):
                 self.logger.error(f"❌ Шаблон не найден: {template_path}")
                 return ""
+            
+            self.logger.info(f"✅ Шаблон загружен: {template_path}")
             
             with open(template_path, 'r', encoding='utf-8') as f:
                 import json
@@ -394,25 +400,33 @@ class CalendarHandler:
                 "location": event.location,
                 "attendees": event.attendees,
                 "meeting_link": event.meeting_link,
-                "folder_link": folder_link,
+                "folder_link": full_folder_path,
                 "calendar_source": event.calendar_source,
-                "account_type": account_type
+                "account_type": account_type,
+                "event_id": event.event_id
             }
             
+            self.logger.info(f"📋 Данные события подготовлены: {template_data}")
+            
             # Получаем настройки Notion
+            self.logger.info(f"🔧 Получаю настройки Notion...")
             notion_config = self.config_manager.get_notion_config()
             notion_token = notion_config.get('token')
             database_id = notion_config.get('database_id')
+            
+            self.logger.info(f"📋 Настройки Notion: токен={'*' * 10 + notion_token[-4:] if notion_token else 'НЕТ'}, база={database_id}")
             
             if not notion_token or not database_id:
                 self.logger.error("❌ Не настроены Notion токен или ID базы данных")
                 return ""
             
+            self.logger.info(f"🔧 Вызываю create_page_with_template...")
             page_id = create_page_with_template(
                 notion_token, 
                 database_id, 
-                template, 
-                template_data
+                template_data, 
+                template,
+                self.logger
             )
             
             if page_id:

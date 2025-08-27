@@ -33,6 +33,13 @@ except ImportError as e:
     print("Установите: pip install python-dotenv")
     sys.exit(1)
 
+try:
+    from calendar_handler import get_calendar_handler
+except ImportError as e:
+    print(f"❌ Ошибка импорта calendar_handler: {e}")
+    print("Убедитесь, что модуль calendar_handler доступен")
+    sys.exit(1)
+
 
 def retry(max_attempts=3, delay=5, backoff=2, exceptions=(Exception,)):
     """
@@ -156,9 +163,9 @@ class MeetingAutomationService:
         try:
             # Импортируем обработчики
             try:
-                from src.calendar_handler import get_calendar_handler
-                from src.media_processor import get_media_processor
-                from src.transcription_handler import get_transcription_handler
+                from calendar_handler import get_calendar_handler
+                from media_processor import get_media_processor
+                from transcription_handler import get_transcription_handler
                 
                 # Создаем экземпляры обработчиков
                 self.calendar_handler = get_calendar_handler(self.config_manager, self.logger)
@@ -425,8 +432,8 @@ class MeetingAutomationService:
                 cmd = [
                     sys.executable,
                     'meeting_automation_universal.py',
-                    'account',
-                    '--type', 'personal'
+                    'calendar',
+                    '--account', 'personal'
                 ]
                 
                 self.logger.info(f"🔄 Запуск команды: {' '.join(cmd)}")
@@ -457,8 +464,8 @@ class MeetingAutomationService:
                 cmd = [
                     sys.executable,
                     'meeting_automation_universal.py',
-                    'account',
-                    '--type', 'work'
+                    'calendar',
+                    '--account', 'work'
                 ]
                 
                 self.logger.info(f"🔄 Запуск команды: {' '.join(cmd)}")
@@ -772,7 +779,7 @@ class MeetingAutomationService:
             self.logger.warning(f"⚠️ Ошибка проверки изменений: {e}")
             return True  # В случае ошибки считаем что есть изменения
     
-    def _format_detailed_report(self) -> str:
+    def _format_detailed_report(self, current_state: Dict[str, Any] = None) -> str:
         """Формирование детального отчета для Telegram."""
         try:
             from datetime import datetime
@@ -793,8 +800,51 @@ class MeetingAutomationService:
                 else:
                     report += "🏢 <b>Рабочий аккаунт:</b> ❌ Отключен\n"
             
-            report += "\n🎯 <b>Система работает в штатном режиме</b>\n"
-            report += "📊 Все задачи выполнены успешно"
+            # Добавляем детальную информацию о том, что отработано
+            if current_state:
+                report += "\n📊 <b>Детальная статистика:</b>\n"
+                
+                # Календарные события
+                personal_events = current_state.get('personal_events', {})
+                work_events = current_state.get('work_events', {})
+                
+                if personal_events.get('status') == 'success':
+                    report += f"👤 <b>Личный календарь:</b> ✅ Обработано {personal_events.get('processed', 0)} событий\n"
+                else:
+                    report += f"👤 <b>Личный календарь:</b> ❌ {personal_events.get('message', 'Ошибка')}\n"
+                
+                if work_events.get('status') == 'success':
+                    report += f"🏢 <b>Рабочий календарь:</b> ✅ Обработано {work_events.get('processed', 0)} событий\n"
+                else:
+                    report += f"🏢 <b>Рабочий календарь:</b> ❌ {work_events.get('message', 'Ошибка')}\n"
+                
+                # Медиа файлы
+                media_processed = current_state.get('media_processed', {})
+                if media_processed.get('count', 0) > 0:
+                    report += f"🎬 <b>Медиа файлы:</b> ✅ Обработано {media_processed.get('count', 0)} файлов\n"
+                else:
+                    report += f"🎬 <b>Медиа файлы:</b> ⏭️ Новых файлов нет\n"
+                
+                # Транскрипции
+                transcriptions = current_state.get('transcriptions', {})
+                if transcriptions.get('count', 0) > 0:
+                    report += f"🎤 <b>Транскрипции:</b> ✅ Обработано {transcriptions.get('count', 0)} файлов\n"
+                else:
+                    report += f"🎤 <b>Транскрипции:</b> ⏭️ Новых файлов нет\n"
+                
+                # Notion синхронизация
+                notion_synced = current_state.get('notion_synced', {})
+                if notion_synced.get('count', 0) > 0:
+                    report += f"📝 <b>Notion:</b> ✅ Синхронизировано {notion_synced.get('count', 0)} страниц\n"
+                else:
+                    report += f"📝 <b>Notion:</b> ⏭️ Новых страниц нет\n"
+                
+                # Время выполнения
+                execution_time = current_state.get('execution_time', 0)
+                if execution_time > 0:
+                    report += f"⏱️ <b>Время выполнения:</b> {execution_time:.2f} секунд\n"
+            
+            report += "\n🎯 <b>Система работает в штатном режиме</b>"
             
             return report
             
@@ -817,7 +867,7 @@ class MeetingAutomationService:
                 return {"status": "skipped", "message": "No changes"}
             
             # Формируем детальный отчет
-            report = self._format_detailed_report()
+            report = self._format_detailed_report(current_state)
             
             # Отправляем уведомление
             self.logger.info("📱 Отправка уведомления в Telegram...")
