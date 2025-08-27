@@ -6,6 +6,7 @@
 import os
 import sys
 import logging
+import json
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional
@@ -25,18 +26,143 @@ except ImportError as e:
 
 
 class CalendarHandler:
-    """Обработчик календаря для создания папок встреч."""
+    """Обработчик календарных событий."""
     
-    def __init__(self, config_manager: ConfigManager, logger: Optional[logging.Logger] = None):
+    def __init__(self, config_manager: ConfigManager):
         """
         Инициализация обработчика календаря.
         
         Args:
             config_manager: Менеджер конфигурации
-            logger: Логгер (опционально)
         """
         self.config_manager = config_manager
-        self.logger = logger or logging.getLogger(__name__)
+        self.logger = logging.getLogger(__name__)
+        
+        # Кэш для отслеживания обработанных событий
+        self.processed_events_cache = self._load_processed_events_cache()
+        
+        # Время последней синхронизации для каждого аккаунта
+        self.last_sync_time = self._load_last_sync_time()
+    
+    def _load_processed_events_cache(self) -> Dict[str, Any]:
+        """Загрузка кэша обработанных событий."""
+        try:
+            cache_file = Path('data/processed_events_cache.json')
+            if cache_file.exists():
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    cache = json.load(f)
+                self.logger.info(f"✅ Кэш обработанных событий загружен: {len(cache.get('events', {}))} событий")
+                return cache
+            else:
+                self.logger.info("⚠️ Кэш обработанных событий не найден, создаю новый")
+                return {"events": {}, "last_updated": datetime.now().isoformat()}
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка загрузки кэша событий: {e}")
+            return {"events": {}, "last_updated": datetime.now().isoformat()}
+    
+    def _save_processed_events_cache(self):
+        """Сохранение кэша обработанных событий."""
+        try:
+            cache_dir = Path('data')
+            cache_dir.mkdir(exist_ok=True)
+            
+            cache_file = cache_dir / 'processed_events_cache.json'
+            
+            # Обновляем время последнего обновления
+            self.processed_events_cache["last_updated"] = datetime.now().isoformat()
+            
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.processed_events_cache, f, ensure_ascii=False, indent=2)
+            
+            self.logger.debug(f"✅ Кэш обработанных событий сохранен в {cache_file}")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения кэша событий: {e}")
+    
+    def _load_last_sync_time(self) -> Dict[str, str]:
+        """Загрузка времени последней синхронизации."""
+        try:
+            sync_file = Path('data/last_sync_time.json')
+            if sync_file.exists():
+                with open(sync_file, 'r', encoding='utf-8') as f:
+                    sync_times = json.load(f)
+                self.logger.info(f"✅ Время последней синхронизации загружено")
+                return sync_times
+            else:
+                self.logger.info("⚠️ Файл времени синхронизации не найден, создаю новый")
+                return {"personal": "", "work": ""}
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка загрузки времени синхронизации: {e}")
+            return {"personal": "", "work": ""}
+    
+    def _save_last_sync_time(self):
+        """Сохранение времени последней синхронизации."""
+        try:
+            sync_dir = Path('data')
+            sync_dir.mkdir(exist_ok=True)
+            
+            sync_file = sync_dir / 'last_sync_time.json'
+            
+            with open(sync_file, 'w', encoding='utf-8') as f:
+                json.dump(self.last_sync_time, f, ensure_ascii=False, indent=2)
+            
+            self.logger.debug(f"✅ Время синхронизации сохранено в {sync_file}")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения времени синхронизации: {e}")
+    
+    def _is_event_processed(self, event: CalendarEvent, account_type: str) -> bool:
+        """
+        Проверка, было ли событие уже обработано.
+        
+        Args:
+            event: Событие календаря
+            account_type: Тип аккаунта
+            
+        Returns:
+            True если событие уже обработано
+        """
+        # Создаем уникальный ключ для события
+        event_key = f"{account_type}_{event.event_id}_{event.start.isoformat()}"
+        
+        # Проверяем в кэше
+        if event_key in self.processed_events_cache.get("events", {}):
+            cached_event = self.processed_events_cache["events"][event_key]
+            
+            # Проверяем, не изменилось ли событие
+            if (cached_event.get("title") == event.title and 
+                cached_event.get("end") == event.end.isoformat() and
+                cached_event.get("attendees_count") == len(event.attendees)):
+                return True
+        
+        return False
+    
+    def _mark_event_processed(self, event: CalendarEvent, account_type: str, result: Dict[str, Any]):
+        """
+        Отмечает событие как обработанное в кэше.
+        
+        Args:
+            event: Событие календаря
+            account_type: Тип аккаунта
+            result: Результат обработки
+        """
+        event_key = f"{account_type}_{event.event_id}_{event.start.isoformat()}"
+        
+        # Сохраняем информацию о событии (конвертируем datetime в строки)
+        self.processed_events_cache["events"][event_key] = {
+            "title": event.title,
+            "start": event.start.isoformat(),
+            "end": event.end.isoformat(),
+            "attendees_count": len(event.attendees),
+            "processed_at": datetime.now().isoformat(),
+            "result": {
+                "title": result.get("title", ""),
+                "start": result.get("start").isoformat() if hasattr(result.get("start"), 'isoformat') else str(result.get("start", "")),
+                "end": result.get("end").isoformat() if hasattr(result.get("end"), 'isoformat') else str(result.get("end", "")),
+                "attendees_count": result.get("attendees_count", 0)
+            }
+        }
+        
+        # Сохраняем кэш
+        self._save_processed_events_cache()
     
     def process_account(self, account_type: str) -> Dict[str, Any]:
         """
@@ -151,15 +277,32 @@ class CalendarHandler:
             self.logger.info(f"✅ Отфильтровано событий: {len(filtered_events)}")
             self.logger.info(f"⏭️ Исключено событий: {len(excluded_events)}")
             
-            # Обрабатываем события
+            # Проверяем, какие события уже обработаны
+            new_events = []
+            already_processed = 0
+            
+            for event in filtered_events:
+                if self._is_event_processed(event, account_type):
+                    already_processed += 1
+                    self.logger.debug(f"⏭️ Событие уже обработано: {event.title}")
+                else:
+                    new_events.append(event)
+            
+            self.logger.info(f"🆕 Новых событий для обработки: {len(new_events)}")
+            self.logger.info(f"✅ Уже обработано событий: {already_processed}")
+            
+            # Обрабатываем только новые события
             processed_events = 0
             processed_details = []
             
-            for event in filtered_events:
+            for event in new_events:
                 try:
                     result = self.process_event(event, drive_provider, account_type)
                     processed_details.append(result)
                     processed_events += 1
+                    
+                    # Отмечаем событие как обработанное
+                    self._mark_event_processed(event, account_type, result)
                     
                     # Выводим информацию о событии
                     self.logger.info(f"✅ Обработано: {event.title} | {event.start.strftime('%H:%M')} | Участники: {len(event.attendees)}")
@@ -167,24 +310,36 @@ class CalendarHandler:
                 except Exception as e:
                     self.logger.error(f"❌ Ошибка обработки события {event.title}: {e}")
             
+            # Обновляем время последней синхронизации
+            self.last_sync_time[account_type] = datetime.now().isoformat()
+            self._save_last_sync_time()
+            
             # Статистика
             excluded_count = len(excluded_events)
+            total_events = len(filtered_events)
             
             result = {
                 'status': 'success',
                 'processed': processed_events,
+                'total': total_events,
+                'new': len(new_events),
+                'already_processed': already_processed,
                 'excluded': excluded_count,
-                'errors': len(events) - processed_events - excluded_count,
+                'errors': len(new_events) - processed_events,
                 'details': processed_details,
-                'excluded_details': excluded_events
+                'excluded_details': excluded_events,
+                'message': f"Обработано {processed_events} новых событий из {total_events} всего"
             }
             
-            self.logger.info(f"📊 Статистика обработки: обработано {processed_events}, исключено {excluded_count}")
+            if processed_events == 0:
+                result['message'] = f"Новых событий нет, уже обработано {already_processed} из {total_events}"
+            
+            self.logger.info(f"📊 Статистика обработки: новых {processed_events}, уже обработано {already_processed}, исключено {excluded_count}")
             return result
             
         except Exception as e:
             self.logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
-            return {'status': 'error', 'processed': 0, 'excluded': 0, 'errors': 1, 'details': [str(e)]}
+            return {'status': 'error', 'processed': 0, 'total': 0, 'new': 0, 'already_processed': 0, 'excluded': 0, 'errors': 1, 'details': [str(e)], 'message': str(e)}
     
     def filter_events(self, events: List[CalendarEvent], account_type: str) -> Tuple[List[CalendarEvent], List[Dict[str, Any]]]:
         """
@@ -289,11 +444,14 @@ class CalendarHandler:
             folder_name = self.format_folder_name(event, account_type)
             
             # Проверяем существование папки
+            folder_created = False
+            folder_id = None
+            
             if drive_provider and drive_provider.file_exists(folder_name):
                 self.logger.info(f"📁 Папка уже существует: {folder_name}")
                 folder_created = False
             else:
-                # Создаем папку
+                # Создаем папку только если её нет
                 if drive_provider:
                     folder_id = drive_provider.create_folder(folder_name)
                     if folder_id:
@@ -306,10 +464,19 @@ class CalendarHandler:
                     self.logger.warning("⚠️ Провайдер диска недоступен")
                     folder_created = False
             
-            # Создаем страницу в Notion
-            # Передаем полный путь к папке для сохранения в Notion
-            full_folder_path = os.path.join(drive_provider.get_root_path() if drive_provider else "", folder_name) if folder_created else ""
-            notion_page_id = self.create_notion_meeting_record(event, full_folder_path, account_type)
+            # Создаем страницу в Notion только если папка была создана или если её нет
+            notion_page_id = ""
+            if folder_created or not drive_provider.file_exists(folder_name):
+                # Передаем полный путь к папке для сохранения в Notion
+                full_folder_path = os.path.join(drive_provider.get_root_path() if drive_provider else "", folder_name)
+                notion_page_id = self.create_notion_meeting_record(event, full_folder_path, account_type)
+                
+                if notion_page_id:
+                    self.logger.info(f"✅ Страница Notion создана/обновлена: {notion_page_id}")
+                else:
+                    self.logger.warning(f"⚠️ Не удалось создать страницу Notion для: {event.title}")
+            else:
+                self.logger.info(f"⏭️ Папка и страница Notion уже существуют для: {event.title}")
             
             # Формируем результат
             result = {
@@ -320,7 +487,7 @@ class CalendarHandler:
                 'has_meeting_link': bool(event.meeting_link),
                 'drive_folder_created': folder_created,
                 'notion_page_id': notion_page_id,
-                'drive_folder_link': full_folder_path
+                'drive_folder_link': os.path.join(drive_provider.get_root_path() if drive_provider else "", folder_name) if folder_name else ""
             }
             
             self.logger.info(f"✅ Событие обработано: {event.title}")
@@ -420,6 +587,20 @@ class CalendarHandler:
                 self.logger.error("❌ Не настроены Notion токен или ID базы данных")
                 return ""
             
+            # Проверяем существование страницы перед созданием
+            from .notion_templates import check_page_exists
+            existing_page_id = check_page_exists(
+                notion_token, 
+                database_id, 
+                event.title, 
+                event.start.strftime('%Y-%m-%d'),
+                self.logger
+            )
+            
+            if existing_page_id:
+                self.logger.info(f"⏭️ Страница в Notion уже существует: {existing_page_id}")
+                return existing_page_id
+            
             self.logger.info(f"🔧 Вызываю create_page_with_template...")
             page_id = create_page_with_template(
                 notion_token, 
@@ -452,4 +633,4 @@ def get_calendar_handler(config_manager: ConfigManager, logger: Optional[logging
     Returns:
         Обработчик календаря
     """
-    return CalendarHandler(config_manager, logger)
+    return CalendarHandler(config_manager)

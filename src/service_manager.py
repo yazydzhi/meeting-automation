@@ -807,6 +807,14 @@ class MeetingAutomationService:
                 self.logger.debug(f"🔍 Обнаружены изменения во времени: {previous_time} -> {current_time}")
                 return True
             
+            # Проверяем, есть ли новые события (даже если они не были обработаны)
+            personal_new = current_state.get('personal_events', {}).get('new', 0)
+            work_new = current_state.get('work_events', {}).get('new', 0)
+            
+            if personal_new > 0 or work_new > 0:
+                self.logger.debug(f"🔍 Обнаружены новые события: личный {personal_new}, рабочий {work_new}")
+                return True
+            
             self.logger.debug("🔍 Изменений не обнаружено")
             return False
             
@@ -849,20 +857,36 @@ class MeetingAutomationService:
                 if personal_events.get('status') == 'success':
                     processed = personal_events.get('processed', 0)
                     total = personal_events.get('total', 0)
+                    new = personal_events.get('new', 0)
+                    already_processed = personal_events.get('already_processed', 0)
+                    
                     if processed > 0:
-                        report += f"   👤 <b>Личный календарь:</b> ✅ Обработано {processed} из {total} событий\n"
+                        report += f"   👤 <b>Личный календарь:</b> ✅ Обработано {processed} новых событий\n"
+                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
+                    elif new > 0:
+                        report += f"   👤 <b>Личный календарь:</b> ⏭️ {new} новых событий (требуют обработки)\n"
+                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
                     else:
                         report += f"   👤 <b>Личный календарь:</b> ⏭️ Новых событий нет\n"
+                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
                 else:
                     report += f"   👤 <b>Личный календарь:</b> ❌ {personal_events.get('message', 'Ошибка')}\n"
                 
                 if work_events.get('status') == 'success':
                     processed = work_events.get('processed', 0)
                     total = work_events.get('total', 0)
+                    new = work_events.get('new', 0)
+                    already_processed = work_events.get('already_processed', 0)
+                    
                     if processed > 0:
-                        report += f"   🏢 <b>Рабочий календарь:</b> ✅ Обработано {processed} из {total} событий\n"
+                        report += f"   🏢 <b>Рабочий календарь:</b> ✅ Обработано {processed} новых событий\n"
+                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
+                    elif new > 0:
+                        report += f"   🏢 <b>Рабочий календарь:</b> ⏭️ {new} новых событий (требуют обработки)\n"
+                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
                     else:
                         report += f"   🏢 <b>Рабочий календарь:</b> ⏭️ Новых событий нет\n"
+                        report += f"      📊 Всего событий: {total}, уже обработано: {already_processed}\n"
                 else:
                     report += f"   🏢 <b>Рабочий календарь:</b> ❌ {work_events.get('message', 'Ошибка')}\n"
                 
