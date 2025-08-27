@@ -820,13 +820,13 @@ def process_notification(message: str, notification_type: str = "info", logger: 
         # Инициализируем Telegram API
         telegram_api = TelegramAPI(telegram_config)
         
-        # Отправляем сообщение
+        # Отправляем сообщение с правильным parse_mode
         if notification_type == "detailed":
-            # Для детальных отчетов используем Markdown
-            success = telegram_api.send_message(message, parse_mode="Markdown")
+            # Для детальных отчетов используем HTML
+            success = telegram_api.send_message(message, parse_mode="HTML")
         else:
-            # Для обычных уведомлений используем обычный текст
-            success = telegram_api.send_message(message)
+            # Для обычных уведомлений используем HTML (так как у нас есть разметка)
+            success = telegram_api.send_message(message, parse_mode="HTML")
         
         if success:
             logger.info("✅ Уведомление отправлено успешно")

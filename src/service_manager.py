@@ -125,6 +125,7 @@ class MeetingAutomationService:
         # Инициализируем переменные для хранения состояния
         self.previous_cycle_state = {}
         self.current_cycle_state = {}
+        self.cycle_counter = 0  # Счетчик выполненных циклов
         
         # Флаг работы сервиса
         self.running = False
@@ -736,32 +737,66 @@ class MeetingAutomationService:
             return error_stats
     
     def _has_changes(self, current_state: Dict[str, Any], previous_state: Dict[str, Any]) -> bool:
-        """Проверка наличия изменений между текущим и предыдущим состоянием."""
+        """
+        Проверка наличия изменений в состоянии системы.
+        
+        Args:
+            current_state: Текущее состояние
+            previous_state: Предыдущее состояние
+            
+        Returns:
+            True если есть изменения, False если изменений нет
+        """
         try:
             if not previous_state:
-                return True  # Если предыдущего состояния нет, считаем что есть изменения
+                self.logger.debug("🔍 Предыдущее состояние отсутствует, считаем что есть изменения")
+                return True
             
-            # Сравниваем ключевые метрики
+            # Проверяем изменения в ключевых метриках
             current_metrics = {
-                'personal_events': current_state.get('personal_events', {}).get('count', 0),
-                'work_events': current_state.get('work_events', {}).get('count', 0),
+                'personal_events': current_state.get('personal_events', {}).get('processed', 0),
+                'work_events': current_state.get('work_events', {}).get('processed', 0),
                 'media_processed': current_state.get('media_processed', {}).get('count', 0),
                 'transcriptions': current_state.get('transcriptions', {}).get('count', 0),
-                'notion_synced': current_state.get('notion_synced', {}).get('count', 0)
+                'notion_synced': current_state.get('notion_synced', {}).get('count', 0),
+                'errors_count': current_state.get('errors_count', 0)
             }
             
             previous_metrics = {
-                'personal_events': previous_state.get('personal_events', {}).get('count', 0),
-                'work_events': previous_state.get('work_events', {}).get('count', 0),
+                'personal_events': previous_state.get('personal_events', {}).get('processed', 0),
+                'work_events': previous_state.get('work_events', {}).get('processed', 0),
                 'media_processed': previous_state.get('media_processed', {}).get('count', 0),
                 'transcriptions': previous_state.get('transcriptions', {}).get('count', 0),
-                'notion_synced': previous_state.get('notion_synced', {}).get('count', 0)
+                'notion_synced': previous_state.get('notion_synced', {}).get('count', 0),
+                'errors_count': previous_state.get('errors_count', 0)
             }
             
             # Проверяем изменения в метриках
             for key in current_metrics:
                 if current_metrics[key] != previous_metrics[key]:
                     self.logger.debug(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                    return True
+            
+            # Проверяем изменения в статусах
+            current_statuses = {
+                'personal_status': current_state.get('personal_events', {}).get('status', ''),
+                'work_status': current_state.get('work_events', {}).get('status', ''),
+                'media_status': current_state.get('media_processed', {}).get('status', ''),
+                'transcription_status': current_state.get('transcriptions', {}).get('status', ''),
+                'notion_status': current_state.get('notion_synced', {}).get('status', '')
+            }
+            
+            previous_statuses = {
+                'personal_status': previous_state.get('personal_events', {}).get('status', ''),
+                'work_status': previous_state.get('work_events', {}).get('status', ''),
+                'media_status': previous_state.get('media_processed', {}).get('status', ''),
+                'transcription_status': previous_state.get('transcriptions', {}).get('status', ''),
+                'notion_status': previous_state.get('notion_synced', {}).get('status', '')
+            }
+            
+            for key in current_statuses:
+                if current_statuses[key] != previous_statuses[key]:
+                    self.logger.debug(f"🔍 Обнаружены изменения в статусе {key}: {previous_statuses[key]} -> {current_statuses[key]}")
                     return True
             
             # Проверяем изменения во времени последнего обновления
@@ -786,65 +821,101 @@ class MeetingAutomationService:
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             report = f"🤖 <b>Отчет системы автоматизации встреч</b>\n\n"
-            report += f"⏰ <b>Время:</b> {current_time}\n\n"
+            report += f"⏰ <b>Время выполнения:</b> {current_time}\n"
+            report += f"🔄 <b>Цикл:</b> #{current_state.get('cycle_number', 'N/A') if current_state else 'N/A'}\n\n"
             
             # Добавляем информацию о статусе аккаунтов
             if self.config_manager:
+                report += "📋 <b>Статус аккаунтов:</b>\n"
                 if self.config_manager.is_personal_enabled():
-                    report += "👤 <b>Личный аккаунт:</b> ✅ Активен\n"
+                    report += "   👤 <b>Личный аккаунт:</b> ✅ Активен\n"
                 else:
-                    report += "👤 <b>Личный аккаунт:</b> ❌ Отключен\n"
+                    report += "   👤 <b>Личный аккаунт:</b> ❌ Отключен\n"
                 
                 if self.config_manager.is_work_enabled():
-                    report += "🏢 <b>Рабочий аккаунт:</b> ✅ Активен\n"
+                    report += "   🏢 <b>Рабочий аккаунт:</b> ✅ Активен\n"
                 else:
-                    report += "🏢 <b>Рабочий аккаунт:</b> ❌ Отключен\n"
+                    report += "   🏢 <b>Рабочий аккаунт:</b> ❌ Отключен\n"
             
             # Добавляем детальную информацию о том, что отработано
             if current_state:
-                report += "\n📊 <b>Детальная статистика:</b>\n"
+                report += "\n📊 <b>Результаты выполнения:</b>\n"
                 
                 # Календарные события
                 personal_events = current_state.get('personal_events', {})
                 work_events = current_state.get('work_events', {})
                 
+                report += "📅 <b>Календарные события:</b>\n"
                 if personal_events.get('status') == 'success':
-                    report += f"👤 <b>Личный календарь:</b> ✅ Обработано {personal_events.get('processed', 0)} событий\n"
+                    processed = personal_events.get('processed', 0)
+                    total = personal_events.get('total', 0)
+                    if processed > 0:
+                        report += f"   👤 <b>Личный календарь:</b> ✅ Обработано {processed} из {total} событий\n"
+                    else:
+                        report += f"   👤 <b>Личный календарь:</b> ⏭️ Новых событий нет\n"
                 else:
-                    report += f"👤 <b>Личный календарь:</b> ❌ {personal_events.get('message', 'Ошибка')}\n"
+                    report += f"   👤 <b>Личный календарь:</b> ❌ {personal_events.get('message', 'Ошибка')}\n"
                 
                 if work_events.get('status') == 'success':
-                    report += f"🏢 <b>Рабочий календарь:</b> ✅ Обработано {work_events.get('processed', 0)} событий\n"
+                    processed = work_events.get('processed', 0)
+                    total = work_events.get('total', 0)
+                    if processed > 0:
+                        report += f"   🏢 <b>Рабочий календарь:</b> ✅ Обработано {processed} из {total} событий\n"
+                    else:
+                        report += f"   🏢 <b>Рабочий календарь:</b> ⏭️ Новых событий нет\n"
                 else:
-                    report += f"🏢 <b>Рабочий календарь:</b> ❌ {work_events.get('message', 'Ошибка')}\n"
+                    report += f"   🏢 <b>Рабочий календарь:</b> ❌ {work_events.get('message', 'Ошибка')}\n"
                 
                 # Медиа файлы
                 media_processed = current_state.get('media_processed', {})
+                report += "\n🎬 <b>Медиа файлы:</b>\n"
                 if media_processed.get('count', 0) > 0:
-                    report += f"🎬 <b>Медиа файлы:</b> ✅ Обработано {media_processed.get('count', 0)} файлов\n"
+                    report += f"   ✅ Обработано {media_processed.get('count', 0)} файлов\n"
+                    if media_processed.get('total_size'):
+                        report += f"   📏 Общий размер: {media_processed.get('total_size', 'N/A')}\n"
                 else:
-                    report += f"🎬 <b>Медиа файлы:</b> ⏭️ Новых файлов нет\n"
+                    report += "   ⏭️ Новых файлов нет\n"
                 
                 # Транскрипции
                 transcriptions = current_state.get('transcriptions', {})
+                report += "\n🎤 <b>Транскрипции:</b>\n"
                 if transcriptions.get('count', 0) > 0:
-                    report += f"🎤 <b>Транскрипции:</b> ✅ Обработано {transcriptions.get('count', 0)} файлов\n"
+                    report += f"   ✅ Обработано {transcriptions.get('count', 0)} файлов\n"
+                    if transcriptions.get('total_duration'):
+                        report += f"   ⏱️ Общая длительность: {transcriptions.get('total_duration', 'N/A')}\n"
                 else:
-                    report += f"🎤 <b>Транскрипции:</b> ⏭️ Новых файлов нет\n"
+                    report += "   ⏭️ Новых файлов нет\n"
                 
                 # Notion синхронизация
                 notion_synced = current_state.get('notion_synced', {})
+                report += "\n📝 <b>Notion синхронизация:</b>\n"
                 if notion_synced.get('count', 0) > 0:
-                    report += f"📝 <b>Notion:</b> ✅ Синхронизировано {notion_synced.get('count', 0)} страниц\n"
+                    report += f"   ✅ Синхронизировано {notion_synced.get('count', 0)} страниц\n"
+                    if notion_synced.get('updated'):
+                        report += f"   🔄 Обновлено: {notion_synced.get('updated', 0)} страниц\n"
                 else:
-                    report += f"📝 <b>Notion:</b> ⏭️ Новых страниц нет\n"
+                    report += "   ⏭️ Новых страниц нет\n"
                 
                 # Время выполнения
                 execution_time = current_state.get('execution_time', 0)
                 if execution_time > 0:
-                    report += f"⏱️ <b>Время выполнения:</b> {execution_time:.2f} секунд\n"
+                    report += f"\n⏱️ <b>Время выполнения цикла:</b> {execution_time:.2f} секунд\n"
+                
+                # Ошибки
+                errors_count = current_state.get('errors_count', 0)
+                if errors_count > 0:
+                    report += f"\n⚠️ <b>Ошибки:</b> {errors_count} ошибок\n"
+                
+                # Статистика по папкам
+                folders_processed = current_state.get('folders_processed', {})
+                if folders_processed:
+                    report += f"\n📁 <b>Папки:</b> Обработано {folders_processed.get('count', 0)} папок\n"
             
-            report += "\n🎯 <b>Система работает в штатном режиме</b>"
+            report += "\n🎯 <b>Статус:</b> "
+            if current_state and current_state.get('errors_count', 0) == 0:
+                report += "✅ Система работает в штатном режиме"
+            else:
+                report += "⚠️ Обнаружены ошибки в работе"
             
             return report
             
@@ -864,19 +935,20 @@ class MeetingAutomationService:
             
             if not force_send and not self._has_changes(current_state, previous_state):
                 self.logger.info("⏭️ Нет изменений, пропускаю отправку уведомлений")
-                return {"status": "skipped", "message": "No changes"}
+                return {"status": "skipped", "message": "No changes detected"}
             
             # Формируем детальный отчет
             report = self._format_detailed_report(current_state)
             
-            # Отправляем уведомление
-            self.logger.info("📱 Отправка уведомления в Telegram...")
+            # Отправляем уведомление с правильным типом
+            self.logger.info("📱 Отправка детального отчета в Telegram...")
             
             cmd = [
                 sys.executable,
                 'meeting_automation_universal.py',
                 'notify',
-                '--message', report
+                '--message', report,
+                '--notification_type', 'detailed'
             ]
             
             self.logger.info(f"🔄 Запуск команды: {' '.join(cmd[:4])}...")
@@ -884,10 +956,10 @@ class MeetingAutomationService:
             process = subprocess.run(cmd, capture_output=True, text=True)
             
             if process.returncode == 0:
-                self.logger.info("✅ Уведомление отправлено успешно")
-                return {"status": "success", "message": "Notification sent"}
+                self.logger.info("✅ Детальный отчет отправлен в Telegram успешно")
+                return {"status": "success", "message": "Detailed report sent"}
             else:
-                self.logger.error(f"❌ Ошибка отправки уведомления: {process.stderr}")
+                self.logger.error(f"❌ Ошибка отправки детального отчета: {process.stderr}")
                 return {"status": "error", "message": process.stderr}
             
         except Exception as e:
@@ -1159,8 +1231,14 @@ class MeetingAutomationService:
     def run_service_cycle(self):
         """Основной цикл работы сервиса."""
         try:
+            # Увеличиваем счетчик циклов
+            self.cycle_counter += 1
+            
+            # Засекаем время начала цикла
+            self._cycle_start_time = time.time()
+            
             start_time = time.time()
-            self.logger.info("🔄 Запуск цикла обработки...")
+            self.logger.info(f"🔄 Запуск цикла обработки #{self.cycle_counter}...")
             self.logger.info(f"⏰ Текущее время: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
             
             # Мониторинг производительности в начале цикла
@@ -1578,18 +1656,104 @@ class MeetingAutomationService:
     
     def _create_cycle_state(self, personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats):
         """Создание состояния текущего цикла обработки."""
-        cycle_state = {
-            "timestamp": datetime.now().isoformat(),
-            "cycle_id": str(uuid.uuid4()),
-            "personal_account": personal_stats,
-            "work_account": work_stats,
-            "media_processing": media_stats,
-            "transcription": transcription_stats,
-            "notion_sync": notion_stats,
-            "summary_generation": summary_stats,
-            "status": "completed"
-        }
-        return cycle_state
+        try:
+            # Вычисляем общее время выполнения
+            total_time = time.time() - getattr(self, '_cycle_start_time', time.time())
+            
+            # Создаем детальное состояние цикла
+            cycle_state = {
+                "timestamp": datetime.now().isoformat(),
+                "last_update": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "cycle_number": self.cycle_counter,
+                "cycle_id": str(uuid.uuid4()),
+                "execution_time": round(total_time, 2),
+                
+                # Статистика по аккаунтам
+                "personal_events": {
+                    "status": personal_stats.get("status", "skipped"),
+                    "processed": personal_stats.get("processed", 0),
+                    "total": personal_stats.get("total", 0),
+                    "message": personal_stats.get("message", ""),
+                    "duration": personal_stats.get("duration", 0)
+                },
+                "work_events": {
+                    "status": work_stats.get("status", "skipped"),
+                    "processed": work_stats.get("processed", 0),
+                    "total": work_stats.get("total", 0),
+                    "message": work_stats.get("message", ""),
+                    "duration": work_stats.get("duration", 0)
+                },
+                
+                # Статистика по медиа
+                "media_processed": {
+                    "status": media_stats.get("status", "skipped"),
+                    "count": media_stats.get("processed", 0),
+                    "total_size": media_stats.get("total_size", "N/A"),
+                    "duration": media_stats.get("duration", 0),
+                    "message": media_stats.get("message", "")
+                },
+                
+                # Статистика по транскрипциям
+                "transcriptions": {
+                    "status": transcription_stats.get("status", "skipped"),
+                    "count": transcription_stats.get("processed", 0),
+                    "total_duration": transcription_stats.get("total_duration", "N/A"),
+                    "duration": transcription_stats.get("duration", 0),
+                    "errors": transcription_stats.get("errors", 0),
+                    "message": transcription_stats.get("message", "")
+                },
+                
+                # Статистика по Notion
+                "notion_synced": {
+                    "status": notion_stats.get("status", "skipped"),
+                    "count": notion_stats.get("processed", 0),
+                    "updated": notion_stats.get("updated", 0),
+                    "duration": notion_stats.get("duration", 0),
+                    "message": notion_stats.get("message", "")
+                },
+                
+                # Статистика по саммари
+                "summaries": {
+                    "status": summary_stats.get("status", "skipped"),
+                    "count": summary_stats.get("processed", 0),
+                    "errors": summary_stats.get("errors", 0),
+                    "duration": summary_stats.get("duration", 0),
+                    "message": summary_stats.get("message", "")
+                },
+                
+                # Общая статистика
+                "total_processed": (
+                    personal_stats.get("processed", 0) + 
+                    work_stats.get("processed", 0) + 
+                    media_stats.get("processed", 0) + 
+                    transcription_stats.get("processed", 0) + 
+                    notion_stats.get("processed", 0) + 
+                    summary_stats.get("processed", 0)
+                ),
+                "errors_count": (
+                    personal_stats.get("errors", 0) + 
+                    work_stats.get("errors", 0) + 
+                    media_stats.get("errors", 0) + 
+                    transcription_stats.get("errors", 0) + 
+                    notion_stats.get("errors", 0) + 
+                    summary_stats.get("errors", 0)
+                ),
+                
+                "status": "completed"
+            }
+            
+            self.logger.debug(f"📊 Создано состояние цикла #{self.cycle_counter}: {cycle_state}")
+            return cycle_state
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания состояния цикла: {e}")
+            # Возвращаем базовое состояние в случае ошибки
+            return {
+                "timestamp": datetime.now().isoformat(),
+                "cycle_number": self.cycle_counter,
+                "status": "error",
+                "error": str(e)
+            }
 
     def _save_state(self, state):
         """Сохранение состояния сервиса."""
