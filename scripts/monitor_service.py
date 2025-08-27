@@ -36,6 +36,16 @@ class ServiceMonitor:
         self.logs_dir = self.project_dir / "logs"
         self.data_dir = self.project_dir / "data"
         
+        # Создаем папку logs если её нет
+        if not self.logs_dir.exists():
+            self.logs_dir.mkdir(exist_ok=True)
+            print(f"📁 Создана папка логов: {self.logs_dir}")
+        
+        # Создаем папку data если её нет
+        if not self.data_dir.exists():
+            self.data_dir.mkdir(exist_ok=True)
+            print(f"📁 Создана папка данных: {self.data_dir}")
+        
         # Загружаем окружение
         try:
             config_manager = ConfigManager()
@@ -83,10 +93,25 @@ class ServiceMonitor:
         latest_log = None
         log_stats = {}
         
+        # Показываем информацию о найденных логах
+        if log_files:
+            print(f"📁 Найдено логов в {self.logs_dir}: {len(log_files)}")
+            for log_file in log_files:
+                size_mb = log_file.stat().st_size / 1024 / 1024
+                mtime = datetime.fromtimestamp(log_file.stat().st_mtime)
+                print(f"   📄 {log_file.name} ({size_mb:.2f}MB, изменен {mtime.strftime('%H:%M:%S')})")
+        else:
+            print(f"⚠️ Логи не найдены в {self.logs_dir}")
+        
+        # Ищем основной лог сервиса
         for log_file in log_files:
-            if log_file.name.startswith("service_"):
+            if log_file.name.startswith("meeting_automation_service"):
                 latest_log = log_file
                 break
+        
+        # Если не нашли основной лог, ищем любой лог
+        if not latest_log and log_files:
+            latest_log = max(log_files, key=lambda x: x.stat().st_mtime)
         
         if latest_log and latest_log.exists():
             try:
@@ -101,7 +126,7 @@ class ServiceMonitor:
                 else:
                     # Ищем в логах последний запуск сервиса
                     for line in reversed(lines):
-                        if '🚀 Сервис запущен' in line or 'Сервис автоматизации встреч инициализирован' in line:
+                        if '🚀 Сервис запущен' in line or 'Сервис автоматизации встреч инициализирован' in line or '🚀 Инициализация менеджера сервиса' in line:
                             try:
                                 timestamp_str = line.split(' - ')[0]
                                 service_start_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
@@ -170,7 +195,7 @@ class ServiceMonitor:
             except Exception as e:
                 log_stats = {'error': str(e)}
         else:
-            log_stats = {'error': 'Логи не найдены'}
+            log_stats = {'error': f'Логи не найдены в {self.logs_dir}'}
         
         return log_stats
     
@@ -417,6 +442,57 @@ class ServiceMonitor:
         
         print("=" * 60)
         print("✅ Мониторинг завершен")
+    
+    def run_continuous_monitoring(self, interval: int = 1, save_to_file: bool = False):
+        """Запуск непрерывного мониторинга."""
+        print("🔄 Запуск непрерывного мониторинга")
+        print(f"⏱️ Интервал обновления: {interval} секунд")
+        print("🛑 Нажмите Ctrl+C для остановки")
+        print("=" * 60)
+        
+        try:
+            while True:
+                # Очищаем экран для лучшего отображения
+                os.system('clear' if os.name == 'posix' else 'cls')
+                
+                # Показываем текущее время
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                print(f"🕐 {current_time}")
+                print("=" * 60)
+                
+                # Генерируем и показываем отчет
+                report = self.generate_report()
+                print(report)
+                
+                # Показываем статус мониторинга
+                print("=" * 60)
+                print(f"🔄 Следующее обновление через {interval} секунд... (Ctrl+C для остановки)")
+                
+                # Ждем указанный интервал
+                time.sleep(interval)
+                
+        except KeyboardInterrupt:
+            print("\n🛑 Получен сигнал остановки...")
+            print("📊 Генерируем финальный отчет...")
+            
+            # Показываем финальный отчет
+            final_report = self.generate_report()
+            print("\n" + "=" * 60)
+            print("📊 ФИНАЛЬНЫЙ ОТЧЕТ")
+            print("=" * 60)
+            print(final_report)
+            
+            # Сохраняем финальный отчет
+            if save_to_file:
+                self.save_report(final_report)
+            
+            print("\n✅ Мониторинг остановлен")
+            print("👋 До свидания!")
+        except Exception as e:
+            print(f"\n❌ Ошибка в мониторинге: {e}")
+            print("🔄 Перезапуск через 5 секунд...")
+            time.sleep(5)
+            self.run_continuous_monitoring(interval, save_to_file)
 
 
 def main():
@@ -426,21 +502,18 @@ def main():
     parser = argparse.ArgumentParser(description="Мониторинг сервиса автоматизации встреч")
     parser.add_argument("--save", action="store_true", help="Сохранить отчет в файл")
     parser.add_argument("--continuous", action="store_true", help="Непрерывный мониторинг")
-    parser.add_argument("--interval", type=int, default=60, help="Интервал мониторинга в секундах")
+    parser.add_argument("--interval", type=int, default=1, help="Интервал мониторинга в секундах (по умолчанию 1)")
+    parser.add_argument("--once", action="store_true", help="Одноразовая проверка (по умолчанию)")
     
     args = parser.parse_args()
     
     monitor = ServiceMonitor()
     
     if args.continuous:
-        print(f"🔄 Непрерывный мониторинг каждые {args.interval} секунд (Ctrl+C для остановки)")
-        try:
-            while True:
-                monitor.run_monitoring(args.save)
-                time.sleep(args.interval)
-        except KeyboardInterrupt:
-            print("\n🛑 Мониторинг остановлен")
+        # Непрерывный мониторинг
+        monitor.run_continuous_monitoring(args.interval, args.save)
     else:
+        # Одноразовая проверка
         monitor.run_monitoring(args.save)
 
 
