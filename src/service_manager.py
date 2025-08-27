@@ -466,26 +466,9 @@ class MeetingAutomationService:
             elif self.calendar_handler:
                 return self.calendar_handler.process_account('personal')
             else:
-                # Используем старый метод через universal script
-                self.logger.info("👤 Запуск обработки личного аккаунта...")
-                
-                cmd = [
-                    sys.executable,
-                    'meeting_automation_universal.py',
-                    'calendar',
-                    '--account', 'personal'
-                ]
-                
-                self.logger.info(f"🔄 Запуск команды: {' '.join(cmd)}")
-                
-                process = subprocess.run(cmd, capture_output=True, text=True)
-                
-                if process.returncode == 0:
-                    self.logger.info("✅ Обработка личного аккаунта завершена успешно")
-                    return {"status": "success", "output": process.stdout}
-                else:
-                    self.logger.error(f"❌ Ошибка обработки личного аккаунта: {process.stderr}")
-                    return {"status": "error", "output": process.stderr}
+                # Fallback: возвращаем ошибку, так как обработчики недоступны
+                self.logger.error("❌ Нет доступных обработчиков для личного аккаунта")
+                return {"status": "error", "output": "Нет доступных обработчиков"}
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки личного аккаунта: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
@@ -501,26 +484,9 @@ class MeetingAutomationService:
             elif self.calendar_handler:
                 return self.calendar_handler.process_account('work')
             else:
-                # Используем старый метод через universal script
-                self.logger.info("🏢 Запуск обработки рабочего аккаунта...")
-                
-                cmd = [
-                    sys.executable,
-                    'meeting_automation_universal.py',
-                    'calendar',
-                    '--account', 'work'
-                ]
-                
-                self.logger.info(f"🔄 Запуск команды: {' '.join(cmd)}")
-                
-                process = subprocess.run(cmd, capture_output=True, text=True)
-                
-                if process.returncode == 0:
-                    self.logger.info("✅ Обработка рабочего аккаунта завершена успешно")
-                    return {"status": "success", "output": process.stdout}
-                else:
-                    self.logger.error(f"❌ Ошибка обработки рабочего аккаунта: {process.stderr}")
-                    return {"status": "error", "output": process.stderr}
+                # Fallback: возвращаем ошибку, так как обработчики недоступны
+                self.logger.error("❌ Нет доступных обработчиков для рабочего аккаунта")
+                return {"status": "error", "output": "Нет доступных обработчиков"}
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки рабочего аккаунта: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
@@ -551,42 +517,9 @@ class MeetingAutomationService:
                 self.last_media_stats = media_stats
                 return media_stats
             else:
-                # Используем старый метод через universal script
-                self.logger.info("🎬 Запуск обработки медиа файлов...")
-                
-                cmd = [
-                    sys.executable,
-                    'meeting_automation_universal.py',
-                    'media',
-                    '--quality', 'medium'
-                ]
-                
-                self.logger.info(f"🔄 Запуск команды: {' '.join(cmd)}")
-                
-                process = subprocess.run(cmd, capture_output=True, text=True)
-                
-                if process.returncode == 0:
-                    self.logger.info("✅ Обработка медиа завершена успешно")
-                    
-                    # Пытаемся извлечь JSON из вывода
-                    try:
-                        import json
-                        import re
-                        
-                        # Ищем JSON в выводе
-                        json_match = re.search(r'({.*})', process.stdout, re.DOTALL)
-                        if json_match:
-                            media_stats = json.loads(json_match.group(1))
-                            self.last_media_stats = media_stats
-                            return media_stats
-                    except Exception as e:
-                        self.logger.warning(f"⚠️ Не удалось извлечь статистику медиа: {e}")
-                    
-                    # Если не удалось извлечь JSON, возвращаем базовую статистику
-                    return {"status": "success", "processed": 1, "synced": 1, "cleanup": 0, "errors": 0}
-                else:
-                    self.logger.error(f"❌ Ошибка обработки медиа: {process.stderr}")
-                    return {"status": "error", "processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
+                # Fallback: возвращаем ошибку, так как обработчики недоступны
+                self.logger.error("❌ Нет доступных обработчиков медиа")
+                return {"status": "error", "processed": 0, "synced": 0, "cleanup": 0, "errors": 1}
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки медиа: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
@@ -607,60 +540,11 @@ class MeetingAutomationService:
                 self.last_transcription_stats = transcription_stats
                 return transcription_stats
             else:
-                # Используем старый метод
-                self.logger.info("🎤 Начинаю обработку транскрипции аудио...")
-                
-                transcription_stats = {"status": "success", "processed": 0, "errors": 0, "details": []}
-                
-                # Проверяем наличие аудио файлов перед запуском
-                has_audio_files = False
-                
-                # Обрабатываем личный аккаунт
-                if self.config_manager and self.config_manager.is_personal_enabled():
-                    personal_config = self.config_manager.get_personal_config()
-                    personal_folder = personal_config.get('local_drive_root')
-                    if personal_folder and os.path.exists(personal_folder):
-                        self.logger.info(f"👤 Проверка аудио файлов в папке личного аккаунта: {personal_folder}")
-                        personal_audio_files = self._count_audio_files(personal_folder)
-                        if personal_audio_files > 0:
-                            self.logger.info(f"🎵 Найдено {personal_audio_files} аудио файлов в личном аккаунте")
-                            has_audio_files = True
-                            self.logger.info(f"👤 Обрабатываю папку личного аккаунта: {personal_folder}")
-                            personal_result = self._process_folder_transcription(personal_folder, "personal")
-                            transcription_stats["details"].append(personal_result)
-                            transcription_stats["processed"] += personal_result.get("processed", 0)
-                            transcription_stats["errors"] += personal_result.get("errors", 0)
-                        else:
-                            self.logger.info(f"📂 В папке личного аккаунта нет аудио файлов для транскрипции")
-                
-                # Обрабатываем рабочий аккаунт
-                if self.config_manager and self.config_manager.is_work_enabled():
-                    work_config = self.config_manager.get_work_config()
-                    work_folder = work_config.get('local_drive_root')
-                    if work_folder and os.path.exists(work_folder):
-                        self.logger.info(f"🏢 Проверка аудио файлов в папке рабочего аккаунта: {work_folder}")
-                        work_audio_files = self._count_audio_files(work_folder)
-                        if work_audio_files > 0:
-                            self.logger.info(f"🎵 Найдено {work_audio_files} аудио файлов в рабочем аккаунте")
-                            has_audio_files = True
-                            self.logger.info(f"🏢 Обрабатываю папку рабочего аккаунта: {work_folder}")
-                            work_result = self._process_folder_transcription(work_folder, "work")
-                            transcription_stats["details"].append(work_result)
-                            transcription_stats["processed"] += work_result.get("processed", 0)
-                            transcription_stats["errors"] += work_result.get("errors", 0)
-                        else:
-                            self.logger.info(f"📂 В папке рабочего аккаунта нет аудио файлов для транскрипции")
-                
-                if not has_audio_files:
-                    self.logger.info("📂 Нет аудио файлов для транскрипции")
-                    transcription_stats["status"] = "no_files"
-                
-                self.logger.info(f"✅ Транскрипция завершена: обработано {transcription_stats['processed']}, ошибок {transcription_stats['errors']}")
-                
-                # Сохраняем статистику для детальных отчетов
-                self.last_transcription_stats = transcription_stats
-                
-                return transcription_stats
+                # Fallback: возвращаем ошибку, так как обработчики недоступны
+                self.logger.error("❌ Нет доступных обработчиков транскрипции")
+                error_stats = {"status": "error", "processed": 0, "errors": 1, "details": ["Нет доступных обработчиков транскрипции"]}
+                self.last_transcription_stats = error_stats
+                return error_stats
         except Exception as e:
             self.logger.error(f"❌ Ошибка транскрипции: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
@@ -668,103 +552,7 @@ class MeetingAutomationService:
             self.last_transcription_stats = error_stats
             return error_stats
     
-    def _count_audio_files(self, folder_path: str) -> int:
-        """Подсчет количества аудио файлов для транскрипции."""
-        try:
-            count = 0
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    if file.lower().endswith('.mp3') and not file.lower().endswith('_compressed.mp3'):
-                        # Проверяем, существует ли уже файл транскрипции
-                        mp3_path = os.path.join(root, file)
-                        transcript_file = mp3_path.replace('.mp3', '_transcript.txt')
-                        if not os.path.exists(transcript_file):
-                            count += 1
-            return count
-        except Exception as e:
-            self.logger.error(f"❌ Ошибка подсчета аудио файлов: {e}")
-            return 0
-    
-    def _process_folder_transcription(self, folder_path: str, account_type: str) -> Dict[str, Any]:
-        """Обработка транскрипции для конкретной папки."""
-        try:
-            result = {"account": account_type, "folder": folder_path, "processed": 0, "errors": 0, "files": []}
-            
-            # Ищем MP3 файлы для транскрипции
-            mp3_files = []
-            for root, dirs, files in os.walk(folder_path):
-                for file in files:
-                    if file.lower().endswith('.mp3'):
-                        mp3_files.append(os.path.join(root, file))
-            
-            if not mp3_files:
-                self.logger.info(f"📁 В папке {folder_path} нет MP3 файлов для транскрипции")
-                return result
-            
-            self.logger.info(f"🎵 Найдено {len(mp3_files)} MP3 файлов для транскрипции")
-            
-            # Запускаем транскрипцию через универсальный скрипт
-            for mp3_file in mp3_files:
-                try:
-                    # Проверяем, существует ли уже файл транскрипции
-                    transcript_file = mp3_file.replace('.mp3', '_transcript.txt')
-                    if os.path.exists(transcript_file):
-                        self.logger.info(f"📄 Файл транскрипции уже существует: {os.path.basename(transcript_file)}")
-                        result["processed"] += 1
-                        result["files"].append({
-                            "file": os.path.basename(mp3_file),
-                            "status": "already_exists",
-                            "output": transcript_file
-                        })
-                        continue
-                    
-                    self.logger.info(f"🎤 Транскрибирую: {os.path.basename(mp3_file)}")
-                    
-                    # Запускаем транскрипцию
-                    transcription_result = subprocess.run([
-                        sys.executable, "meeting_automation_universal.py", "transcribe", 
-                        "--account", account_type, "--file", mp3_file
-                    ], capture_output=True, text=True, timeout=600)  # 10 минут на файл
-                    
-                    if transcription_result.returncode == 0:
-                        result["processed"] += 1
-                        result["files"].append({
-                            "file": os.path.basename(mp3_file),
-                            "status": "success",
-                            "output": transcription_result.stdout
-                        })
-                        self.logger.info(f"✅ Транскрипция завершена: {os.path.basename(mp3_file)}")
-                    else:
-                        result["errors"] += 1
-                        result["files"].append({
-                            "file": os.path.basename(mp3_file),
-                            "status": "error",
-                            "error": transcription_result.stderr
-                        })
-                        self.logger.error(f"❌ Ошибка транскрипции: {os.path.basename(mp3_file)}")
-                        
-                except subprocess.TimeoutExpired:
-                    result["errors"] += 1
-                    result["files"].append({
-                        "file": os.path.basename(mp3_file),
-                        "status": "timeout",
-                        "error": "Превышено время выполнения"
-                    })
-                    self.logger.error(f"⏰ Таймаут транскрипции: {os.path.basename(mp3_file)}")
-                except Exception as e:
-                    result["errors"] += 1
-                    result["files"].append({
-                        "file": os.path.basename(mp3_file),
-                        "status": "error",
-                        "error": str(e)
-                    })
-                    self.logger.error(f"❌ Ошибка транскрипции {os.path.basename(mp3_file)}: {e}")
-            
-            return result
-            
-        except Exception as e:
-            self.logger.error(f"❌ Ошибка обработки папки {folder_path}: {e}")
-            return {"account": account_type, "folder": folder_path, "processed": 0, "errors": 1, "files": [], "error": str(e)}
+
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def sync_with_notion(self) -> Dict[str, Any]:
@@ -1547,54 +1335,11 @@ class MeetingAutomationService:
                 self.last_summary_stats = summary_stats
                 return summary_stats
             else:
-                # Используем старый метод
-                self.logger.info("📝 Начинаю генерацию саммари для транскрипций...")
-                
-                summary_stats = {"status": "success", "processed": 0, "errors": 0, "details": []}
-                
-                # Проверяем наличие транскрипций перед запуском
-                has_transcriptions = False
-                
-                # Обрабатываем личный аккаунт
-                if self.config_manager and self.config_manager.is_personal_enabled():
-                    personal_config = self.config_manager.get_personal_config()
-                    personal_folder = personal_config.get('local_drive_root')
-                    if personal_folder and os.path.exists(personal_folder):
-                        self.logger.info(f"👤 Проверка транскрипций в папке личного аккаунта: {personal_folder}")
-                        personal_result = self._process_folder_summaries(personal_folder, "personal")
-                        if personal_result["processed"] > 0:
-                            has_transcriptions = True
-                            summary_stats["details"].append(personal_result)
-                            summary_stats["processed"] += personal_result.get("processed", 0)
-                            summary_stats["errors"] += personal_result.get("errors", 0)
-                        else:
-                            self.logger.info(f"📂 В папке личного аккаунта нет транскрипций для анализа")
-                
-                # Обрабатываем рабочий аккаунт
-                if self.config_manager and self.config_manager.is_work_enabled():
-                    work_config = self.config_manager.get_work_config()
-                    work_folder = work_config.get('local_drive_root')
-                    if work_folder and os.path.exists(work_folder):
-                        self.logger.info(f"🏢 Проверка транскрипций в папке рабочего аккаунта: {work_folder}")
-                        work_result = self._process_folder_summaries(work_folder, "work")
-                        if work_result["processed"] > 0:
-                            has_transcriptions = True
-                            summary_stats["details"].append(work_result)
-                            summary_stats["processed"] += work_result.get("processed", 0)
-                            summary_stats["errors"] += work_result.get("errors", 0)
-                        else:
-                            self.logger.info(f"📂 В папке рабочего аккаунта нет транскрипций для анализа")
-                
-                if not has_transcriptions:
-                    self.logger.info("📂 Нет транскрипций для анализа")
-                    summary_stats["status"] = "no_files"
-                
-                self.logger.info(f"✅ Генерация саммари завершена: обработано {summary_stats['processed']}, ошибок {summary_stats['errors']}")
-                
-                # Сохраняем статистику для детальных отчетов
-                self.last_summary_stats = summary_stats
-                
-                return summary_stats
+                # Fallback: возвращаем ошибку, так как обработчики недоступны
+                self.logger.error("❌ Нет доступных обработчиков саммари")
+                error_stats = {"status": "error", "processed": 0, "errors": 1, "details": ["Нет доступных обработчиков саммари"]}
+                self.last_summary_stats = error_stats
+                return error_stats
         except Exception as e:
             self.logger.error(f"❌ Ошибка генерации саммари: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
