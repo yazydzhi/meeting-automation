@@ -33,7 +33,12 @@ except ImportError as e:
     print("Установите: pip install python-dotenv")
     sys.exit(1)
 
-
+try:
+    from calendar_handler import get_calendar_handler
+except ImportError as e:
+    print(f"❌ Ошибка импорта calendar_handler: {e}")
+    print("Убедитесь, что модуль calendar_handler доступен")
+    sys.exit(1)
 
 # Импортируем новые модульные обработчики
 try:
@@ -188,6 +193,11 @@ class MeetingAutomationService:
             self.logger.error(f"❌ Критическая ошибка инициализации обработчиков: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
             raise
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+            # Продолжаем работу без обработчиков
+            self.calendar_handler = None
+            self.media_processor = None
+            self.transcription_handler = None
     
     def _setup_logging(self, log_level: str) -> logging.Logger:
         """Настройка логирования."""
