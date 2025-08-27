@@ -119,39 +119,89 @@ class ServiceMonitor:
                 with open(latest_log, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
                 
-                # Получаем время запуска сервиса из текущего процесса
+                # Получаем время запуска сервиса
                 service_start_time = None
-                if hasattr(self, '_service_start_time'):
-                    service_start_time = self._service_start_time
-                else:
-                    # Ищем в логах последний запуск сервиса
+                
+                # Сначала пытаемся найти время запуска в логах
+                for line in reversed(lines):
+                    # Ищем различные варианты сообщений о запуске
+                    if any(keyword in line for keyword in [
+                        '🚀 Сервис запущен',
+                        '🚀 Инициализация менеджера сервиса',
+                        '🔄 Запуск цикла обработки',
+                        'Сервис автоматизации встреч инициализирован',
+                        'Запуск сервиса автоматизации встреч'
+                    ]):
+                        try:
+                            timestamp_str = line.split(' - ')[0]
+                            service_start_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
+                            print(f"📅 Найдено время запуска сервиса в логах: {service_start_time}")
+                            break
+                        except Exception as e:
+                            print(f"⚠️ Не удалось распарсить время из строки: {line.strip()}")
+                            continue
+                
+                # Если не нашли время запуска, ищем время последнего цикла
+                if not service_start_time:
                     for line in reversed(lines):
-                        if '🚀 Сервис запущен' in line or 'Сервис автоматизации встреч инициализирован' in line or '🚀 Инициализация менеджера сервиса' in line:
+                        if '🔄 Запуск цикла обработки' in line:
                             try:
                                 timestamp_str = line.split(' - ')[0]
-                                service_start_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
+                                cycle_start_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
+                                # Предполагаем, что сервис запущен за 5 минут до первого цикла
+                                service_start_time = cycle_start_time - timedelta(minutes=5)
+                                print(f"📅 Найдено время последнего цикла, предполагаем запуск: {service_start_time}")
                                 break
-                            except:
+                            except Exception as e:
+                                print(f"⚠️ Не удалось распарсить время цикла: {line.strip()}")
                                 continue
+                
+                # Если не нашли в логах, используем время запуска текущего процесса
+                if not service_start_time and hasattr(self, '_service_start_time'):
+                    service_start_time = self._service_start_time
+                    print(f"📅 Используем время запуска из текущего процесса: {service_start_time}")
+                
+                # Если все еще не нашли, используем время последнего изменения файла лога
+                if not service_start_time:
+                    # Ищем последнюю запись в логах и берем время на 1 час назад
+                    last_log_time = None
+                    for line in reversed(lines):
+                        try:
+                            timestamp_str = line.split(' - ')[0]
+                            last_log_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
+                            break
+                        except:
+                            continue
                     
-                    # Если не нашли, используем время создания файла
-                    if not service_start_time:
+                    if last_log_time:
+                        # Предполагаем, что сервис запущен примерно час назад
+                        service_start_time = last_log_time - timedelta(hours=1)
+                        print(f"📅 Предполагаемое время запуска (1 час назад): {service_start_time}")
+                    else:
+                        # Если не можем определить, используем время создания файла
                         service_start_time = datetime.fromtimestamp(latest_log.stat().st_ctime)
-                    
-                    # Сохраняем время запуска для использования в других функциях
-                    self._service_start_time = service_start_time
+                        print(f"📅 Используем время создания файла лога: {service_start_time}")
+                
+                # Сохраняем время запуска для использования в других функциях
+                self._service_start_time = service_start_time
                 
                 # Фильтруем логи только с момента запуска сервиса
                 filtered_lines = []
+                skipped_lines = 0
+                
                 for line in lines:
                     try:
                         timestamp_str = line.split(' - ')[0]
                         line_time = datetime.fromisoformat(timestamp_str.replace(' ', 'T'))
                         if line_time >= service_start_time:
                             filtered_lines.append(line)
+                        else:
+                            skipped_lines += 1
                     except:
                         # Если не можем распарсить время, добавляем строку
                         filtered_lines.append(line)
+                
+                print(f"📊 Отфильтровано логов: {len(filtered_lines)} из {len(lines)} (пропущено {skipped_lines})")
                 
                 # Анализируем отфильтрованные логи
                 error_count = sum(1 for line in filtered_lines if 'ERROR' in line or '❌' in line)
