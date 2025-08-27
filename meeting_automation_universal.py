@@ -198,7 +198,7 @@ def process_calendar_events(calendar_provider, drive_provider, account_type: str
         logger.error(f"❌ Критическая ошибка обработки календаря: {e}")
         return {'status': 'error', 'processed': 0, 'excluded': 0, 'errors': 1, 'details': [str(e)]}
 
-def filter_events(events: List[CalendarEvent], account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> tuple[List[CalendarEvent], List[Dict[str, Any]]]:
+def filter_events(events: List[Dict[str, Any]], account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     """Фильтрация событий календаря."""
     filtered_events = []
     excluded_events = []
@@ -265,7 +265,7 @@ def _load_exclusions(account_type: str, config_manager: ConfigManager, logger: l
         else:
             return ['Обед', 'Перерыв', 'Отгул', 'Больничный', 'Отпуск']
 
-def process_event(event: CalendarEvent, drive_provider, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> Dict[str, Any]:
+def process_event(event: Dict[str, Any], drive_provider, account_type: str, config_manager: ConfigManager, logger: logging.Logger) -> Dict[str, Any]:
     """Обработка события календаря и создание папки встречи."""
     try:
         logger.info(f"🔄 Обрабатываю событие: {event.title}")
@@ -324,7 +324,7 @@ def process_event(event: CalendarEvent, drive_provider, account_type: str, confi
             'error': str(e)
         }
 
-def format_folder_name(event: CalendarEvent, account_type: str) -> str:
+def format_folder_name(event: Dict[str, Any], account_type: str) -> str:
     """Форматирование названия папки для встречи."""
     start_time = event.start
     title = event.title
@@ -746,8 +746,10 @@ def process_transcription(config_manager: ConfigManager, account_type: str, file
     logger.info("🎤 Запуск транскрипции аудио...")
     
     try:
-        # Инициализируем AudioProcessor
-        audio_processor = AudioProcessor()
+        # TODO: AudioProcessor был удален во время рефакторинга
+        # Нужно реализовать транскрипцию через handlers
+        logger.warning("⚠️ Транскрипция временно отключена - AudioProcessor удален")
+        return {"status": "error", "message": "Transcription temporarily disabled - AudioProcessor removed"}
         
         if file_path:
             # Транскрибируем конкретный файл
@@ -796,7 +798,7 @@ def process_transcription(config_manager: ConfigManager, account_type: str, file
         logger.error(f"❌ Ошибка транскрипции: {e}")
         return {"status": "error", "message": str(e)}
 
-def _process_folder_transcription(audio_processor: AudioProcessor, folder_path: str, account_type: str, logger: logging.Logger = None):
+def _process_folder_transcription(audio_processor, folder_path: str, account_type: str, logger: logging.Logger = None):
     """Обработка транскрипции для конкретной папки."""
     if logger is None:
         logger = logging.getLogger(__name__)
