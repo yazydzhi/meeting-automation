@@ -441,7 +441,7 @@ class SummaryHandler(ProcessHandler):
                             f.write("- Используется базовый анализ\n")
                             f.write("- Для детального анализа настройте OpenAI API в .env файле\n")
                 
-                # Создаем комплексный анализ в JSON
+            # Создаем комплексный анализ в JSON
                 complex_analysis = {
                     "folder_name": folder_name,
                     "created": self._get_current_timestamp(),
