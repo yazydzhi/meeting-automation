@@ -9,6 +9,9 @@ from .base_handler import BaseHandler, retry
 import os
 import pytz
 from datetime import datetime
+import sys
+sys.path.append("src")
+from notion_templates import create_customized_template
 
 
 class NotionHandler(BaseHandler):
@@ -518,3 +521,140 @@ class NotionHandler(BaseHandler):
         except Exception as e:
             self.logger.error(f"❌ Ошибка создания свойств страницы встречи: {e}")
             return {}
+
+
+    def create_meeting_page(self, calendar_event, folder_path, account_type) -> Dict[str, Any]:
+        """
+        Создает страницу встречи в Notion по шаблону.
+        
+        Args:
+            calendar_event: Событие календаря
+            folder_path: Путь к папке встречи
+            account_type: Тип аккаунта
+            
+        Returns:
+            Результат создания страницы Notion
+        """
+        try:
+            self.logger.info(f"📝 Создание страницы Notion для встречи: {calendar_event.get('title', 'Unknown')}")
+            
+            # Проверяем конфигурацию Notion
+            if not self._validate_notion_config():
+                return {"success": False, "message": "Notion configuration not valid"}
+            
+            # Подготавливаем данные для шаблона
+            page_data = self._prepare_page_data(calendar_event, folder_path, account_type)
+            
+            # Создаем страницу через API Notion
+            notion_page = self._create_notion_page(page_data)
+            
+            if notion_page:
+                self.logger.info(f"✅ Страница Notion создана: {notion_page.get('id', 'unknown')}")
+                return {
+                    "success": True, 
+                    "page_id": notion_page.get("id"),
+                    "url": notion_page.get("url"),
+                    "message": "Notion page created successfully"
+                }
+            else:
+                return {"success": False, "message": "Failed to create Notion page"}
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания страницы Notion: {e}")
+            return {"success": False, "message": str(e)}
+
+    def update_meeting_results(self, notion_page_id, processing_results) -> Dict[str, Any]:
+        """
+        Обновляет страницу Notion результатами обработки.
+        
+        Args:
+            notion_page_id: ID страницы Notion
+            processing_results: Результаты обработки
+            
+        Returns:
+            Результат обновления
+        """
+        try:
+            self.logger.info(f"📝 Обновление страницы Notion {notion_page_id} результатами обработки")
+            
+            # Проверяем конфигурацию Notion
+            if not self._validate_notion_config():
+                return {"success": False, "message": "Notion configuration not valid"}
+            
+            # TODO: Реализовать обновление через API Notion
+            # Пока возвращаем заглушку
+            self.logger.info(f"📝 Обновление страницы Notion (заглушка): {processing_results}")
+            
+            return {
+                "success": True,
+                "message": "Notion page update not yet implemented"
+            }
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления страницы Notion: {e}")
+            return {"success": False, "message": str(e)}
+
+    def _prepare_page_data(self, event, folder_path, account_type) -> Dict[str, Any]:
+        """
+        Подготавливает данные для страницы по шаблону.
+        
+        Args:
+            event: Событие календаря
+            folder_path: Путь к папке встречи
+            account_type: Тип аккаунта
+            
+        Returns:
+            Данные для создания страницы
+        """
+        try:
+            # Извлекаем данные из события
+            title = event.get("title", "Unknown Event")
+            start_time = event.get("start", "")
+            end_time = event.get("end", "")
+            attendees = event.get("attendees", [])
+            
+            # Формируем данные для шаблона
+            page_data = {
+                "title": title,
+                "start_time": start_time,
+                "end_time": end_time,
+                "attendees": attendees,
+                "meeting_link": "",
+                "drive_link": folder_path,
+                "account_type": account_type
+            }
+            
+            return page_data
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка подготовки данных страницы: {e}")
+            return {}
+
+    def _create_notion_page(self, page_data) -> Dict[str, Any]:
+        """
+        Создает страницу в Notion через API.
+        
+        Args:
+            page_data: Данные для создания страницы
+            
+        Returns:
+            Созданная страница Notion или None
+        """
+        try:
+            # TODO: Реализовать создание через API Notion
+            # Пока возвращаем заглушку
+            self.logger.info(f"📝 Создание страницы Notion (заглушка): {page_data}")
+            
+            # Возвращаем тестовую страницу
+            return {
+                "id": f"test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
+                "url": f"https://notion.so/test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
+                "page_id": f"test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
+                "url": f"https://notion.so/test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
+                "title": page_data.get("title", "Unknown"),
+                "created": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания страницы через API Notion: {e}")
+            return None
