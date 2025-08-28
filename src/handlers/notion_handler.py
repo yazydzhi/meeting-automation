@@ -185,14 +185,41 @@ class NotionHandler(BaseHandler):
             # TASK-4: Создаем свойства страницы с учетом таймзон
             properties = self._create_meeting_properties(event_data, timezone)
             
-            # TODO: Реализовать реальный API запрос к Notion
-            # Пока что возвращаем заглушку с исправленной логикой таймзон
-            
-            result = {
-                "status": "success",
-                "page_id": "test_page_id_tz_fixed",
-                "message": "Страница встречи создана с исправленной логикой таймзон (заглушка)"
-            }
+            # Реальная логика создания страницы в Notion
+            try:
+                # Импортируем notion_templates для создания страницы
+                from notion_templates import create_meeting_page
+                
+                # Создаем реальную страницу в Notion
+                notion_result = create_meeting_page(event_data, self.config_manager)
+                
+                if notion_result and notion_result.get('status') == 'success':
+                    result = {
+                        "status": "success",
+                        "page_id": notion_result.get('page_id', 'unknown'),
+                        "message": "Страница встречи успешно создана в Notion"
+                    }
+                else:
+                    result = {
+                        "status": "error",
+                        "page_id": None,
+                        "message": f"Ошибка создания страницы в Notion: {notion_result.get('message', 'Unknown error')}"
+                    }
+                    
+            except ImportError:
+                self.logger.warning("⚠️ Модуль notion_templates не найден, используем заглушку")
+                result = {
+                    "status": "warning",
+                    "page_id": "notion_templates_missing",
+                    "message": "Модуль notion_templates не найден, страница не создана"
+                }
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка создания страницы в Notion: {e}")
+                result = {
+                    "status": "error",
+                    "page_id": None,
+                    "message": f"Ошибка создания страницы в Notion: {str(e)}"
+                }
             
             self.logger.info(f"✅ Страница встречи создана: {result['page_id']}")
             return result
@@ -221,14 +248,41 @@ class NotionHandler(BaseHandler):
                     "обновление страницы встречи"
                 )
             
-            # Здесь будет логика обновления страницы
-            # TODO: Интегрировать с существующей логикой обновления страниц
-            
-            result = {
-                "status": "success",
-                "page_id": page_id,
-                "message": "Страница встречи обновлена (заглушка)"
-            }
+            # Реальная логика обновления страницы в Notion
+            try:
+                # Импортируем notion_templates для обновления страницы
+                from notion_templates import update_meeting_page
+                
+                # Обновляем реальную страницу в Notion
+                notion_result = update_meeting_page(page_id, update_data, self.config_manager)
+                
+                if notion_result and notion_result.get('status') == 'success':
+                    result = {
+                        "status": "success",
+                        "page_id": page_id,
+                        "message": "Страница встречи успешно обновлена в Notion"
+                    }
+                else:
+                    result = {
+                        "status": "error",
+                        "page_id": page_id,
+                        "message": f"Ошибка обновления страницы в Notion: {notion_result.get('message', 'Unknown error')}"
+                    }
+                    
+            except ImportError:
+                self.logger.warning("⚠️ Модуль notion_templates не найден, используем заглушку")
+                result = {
+                    "status": "warning",
+                    "page_id": page_id,
+                    "message": "Модуль notion_templates не найден, страница не обновлена"
+                }
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка обновления страницы в Notion: {e}")
+                result = {
+                    "status": "error",
+                    "page_id": page_id,
+                    "message": f"Ошибка обновления страницы в Notion: {str(e)}"
+                }
             
             self.logger.info(f"✅ Страница встречи обновлена: {page_id}")
             return result
@@ -257,15 +311,45 @@ class NotionHandler(BaseHandler):
                     "поиск страницы встречи"
                 )
             
-            # Здесь будет логика поиска страницы
-            # TODO: Интегрировать с существующей логикой поиска страниц
-            
-            result = {
-                "status": "success",
-                "found": False,
-                "page_id": None,
-                "message": "Поиск выполнен (заглушка)"
-            }
+            # Реальная логика поиска страницы в Notion
+            try:
+                # Импортируем notion_templates для поиска страницы
+                from notion_templates import search_meeting_page
+                
+                # Ищем реальную страницу в Notion
+                notion_result = search_meeting_page(title, date, self.config_manager)
+                
+                if notion_result and notion_result.get('status') == 'success':
+                    result = {
+                        "status": "success",
+                        "found": notion_result.get('found', False),
+                        "page_id": notion_result.get('page_id'),
+                        "message": "Поиск страницы в Notion завершен успешно"
+                    }
+                else:
+                    result = {
+                        "status": "error",
+                        "found": False,
+                        "page_id": None,
+                        "message": f"Ошибка поиска страницы в Notion: {notion_result.get('message', 'Unknown error')}"
+                    }
+                    
+            except ImportError:
+                self.logger.warning("⚠️ Модуль notion_templates не найден, используем заглушку")
+                result = {
+                    "status": "warning",
+                    "found": False,
+                    "page_id": None,
+                    "message": "Модуль notion_templates не найден, поиск не выполнен"
+                }
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка поиска страницы в Notion: {e}")
+                result = {
+                    "status": "error",
+                    "found": False,
+                    "page_id": None,
+                    "message": f"Ошибка поиска страницы в Notion: {str(e)}"
+                }
             
             self.logger.info(f"✅ Поиск страницы встречи завершен: найдено {result['found']}")
             return result

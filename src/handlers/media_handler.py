@@ -225,21 +225,17 @@ class MediaHandler(BaseHandler):
             should_delete = self.config_manager.should_delete_original_videos()
             self.logger.info(f"🔧 TASK-5: Настройка удаления оригиналов: {should_delete}")
             
-            # Здесь должна быть логика обработки видео
-            # Пока что создаем заглушку для тестирования
-            # TODO: Интегрировать с существующей логикой обработки медиа
+            # Реальная логика сжатия видео через FFmpeg
+            video_success = self._compress_video(video_file, compressed_video, quality)
+            if not video_success:
+                self.logger.error(f"❌ Не удалось сжать видео: {video_file}")
+                return False
             
-            # Создаем заглушку сжатого видео
-            with open(compressed_video, 'w') as f:
-                f.write(f"Сжатый видео файл: {os.path.basename(video_file)}\n")
-                f.write(f"Качество: {quality}\n")
-                f.write("Статус: Заглушка для тестирования TASK-5\n")
-            
-            # Создаем заглушку сжатого аудио
-            with open(compressed_audio, 'w') as f:
-                f.write(f"Сжатый аудио файл: {os.path.basename(video_file)}\n")
-                f.write(f"Качество: {quality}\n")
-                f.write("Статус: Заглушка для тестирования TASK-5\n")
+            # Реальная логика извлечения аудио из сжатого видео
+            audio_success = self._extract_audio(compressed_video, compressed_audio)
+            if not audio_success:
+                self.logger.error(f"❌ Не удалось извлечь аудио из сжатого видео: {compressed_video}")
+                return False
             
             self.logger.info(f"✅ Создан сжатый видео файл: {compressed_video}")
             self.logger.info(f"✅ Создан сжатый аудио файл: {compressed_audio}")
@@ -279,3 +275,97 @@ class MediaHandler(BaseHandler):
         """Сбрасывает таймер проверки медиа."""
         self.last_media_check = 0
         self.logger.info("⏰ Таймер проверки медиа сброшен")
+    
+    def _compress_video(self, input_file: str, output_file: str, quality: str) -> bool:
+        """
+        Сжатие видео файла через FFmpeg.
+        
+        Args:
+            input_file: Путь к входному файлу
+            output_file: Путь к выходному файлу
+            quality: Качество сжатия
+            
+        Returns:
+            True, если сжатие прошло успешно
+        """
+        try:
+            import subprocess
+            
+            # Определяем параметры качества
+            quality_params = {
+                'low': ['-crf', '28', '-preset', 'fast'],
+                'medium': ['-crf', '23', '-preset', 'medium'],
+                'high': ['-crf', '18', '-preset', 'slow']
+            }
+            
+            params = quality_params.get(quality, quality_params['medium'])
+            
+            cmd = [
+                'ffmpeg', '-i', input_file,
+                '-c:v', 'libx264',
+                '-c:a', 'aac',
+                '-b:a', '128k'
+            ] + params + [
+                '-y',  # Перезаписывать существующие файлы
+                output_file
+            ]
+            
+            self.logger.info(f"🎬 Запуск FFmpeg: {' '.join(cmd)}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=1800)  # 30 минут
+            
+            if result.returncode == 0:
+                self.logger.info(f"✅ Видео успешно сжато: {output_file}")
+                return True
+            else:
+                self.logger.error(f"❌ Ошибка сжатия видео: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"⏰ Таймаут сжатия видео: {input_file}")
+            return False
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сжатия видео {input_file}: {e}")
+            return False
+    
+    def _extract_audio(self, input_file: str, output_file: str) -> bool:
+        """
+        Извлечение аудио из видео файла.
+        
+        Args:
+            input_file: Путь к входному файлу
+            output_file: Путь к выходному файлу
+            
+        Returns:
+            True, если извлечение прошло успешно
+        """
+        try:
+            import subprocess
+            
+            cmd = [
+                'ffmpeg', '-i', input_file,
+                '-vn',  # Без видео
+                '-c:a', 'mp3',
+                '-b:a', '128k',
+                '-ar', '44100',
+                '-y',  # Перезаписывать существующие файлы
+                output_file
+            ]
+            
+            self.logger.info(f"🎵 Извлечение аудио: {' '.join(cmd)}")
+            
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)  # 10 минут
+            
+            if result.returncode == 0:
+                self.logger.info(f"✅ Аудио успешно извлечено: {output_file}")
+                return True
+            else:
+                self.logger.error(f"❌ Ошибка извлечения аудио: {result.stderr}")
+                return False
+                
+        except subprocess.TimeoutExpired:
+            self.logger.error(f"⏰ Таймаут извлечения аудио: {input_file}")
+            return False
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка извлечения аудио {input_file}: {e}")
+            return False
