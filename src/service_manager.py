@@ -199,6 +199,9 @@ class MeetingAutomationService:
         logger = logging.getLogger("meeting_automation_service")
         logger.setLevel(logging.getLevelName(log_level))
         
+        # Предотвращаем дублирование логов
+        logger.propagate = False
+        
         # Очищаем существующие хендлеры
         for handler in logger.handlers[:]:
             logger.removeHandler(handler)
