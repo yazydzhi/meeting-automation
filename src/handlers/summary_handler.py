@@ -352,8 +352,8 @@ class SummaryHandler(ProcessHandler):
                 result["errors"] += 1
                 return result
             
-                            # TASK-3: Создаем комплексное саммари с использованием OpenAI API
-                try:
+            # TASK-3: Создаем комплексное саммари с использованием OpenAI API
+            try:
                     # Проверяем OpenAI API
                     openai_config = self.get_openai_config()
                     if openai_config and openai_config.get('api_key'):
