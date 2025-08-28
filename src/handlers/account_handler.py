@@ -23,11 +23,13 @@ class AccountHandler(BaseHandler):
         Args:
             config_manager: Менеджер конфигурации
             calendar_handler: Обработчик календаря (если есть)
+            notion_handler: Обработчик Notion
             logger: Логгер
         """
         super().__init__(config_manager, logger)
         self.calendar_handler = calendar_handler
-        self.calendar_integration_handler = CalendarIntegrationHandler(config_manager, notion_handler, logger)
+        self.notion_handler = notion_handler
+        self.calendar_integration_handler = CalendarIntegrationHandler(config_manager, notion_handler, None, logger)
     
     def process(self, account_type: str = 'personal') -> Dict[str, Any]:
         """
@@ -62,7 +64,7 @@ class AccountHandler(BaseHandler):
             
             # Пытаемся использовать новый обработчик интеграции календаря
             if self.calendar_integration_handler:
-                result = self.calendar_integration_handler.process_calendar_events(account_type)
+                result = self.calendar_integration_handler.process(account_type)
                 self._log_operation_end(f"обработку аккаунта {account_type}", result)
                 return result
             

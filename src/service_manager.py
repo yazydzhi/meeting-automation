@@ -39,9 +39,7 @@ except ImportError as e:
 try:
     from src.handlers import (
         CalendarHandler,
-        
         CalendarIntegrationHandler,
-        
         AccountHandler,
         TranscriptionHandler,
         SummaryHandler,
@@ -49,7 +47,7 @@ try:
         NotionHandler,
         MetricsHandler
     )
-    from handlers.smart_report_generator import SmartReportGenerator
+    from src.handlers.smart_report_generator import SmartReportGenerator
     NEW_HANDLERS_AVAILABLE = True
     print("✅ Новые модульные обработчики загружены")
 except ImportError as e:
@@ -184,15 +182,20 @@ class MeetingAutomationService:
             # Сначала создаем notion_handler
             self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
             
+            # Сначала создаем notion_handler
+            self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
+            
             # Затем создаем account_handler с notion_handler
             self.account_handler = AccountHandler(self.config_manager, None, self.notion_handler, self.logger)
             self.transcription_handler_new = TranscriptionHandler(self.config_manager, None, self.logger)
             self.summary_handler = SummaryHandler(self.config_manager, None, self.logger)
             # Передаем self (ServiceManager) в MediaHandler для доступа к кэшу
             self.media_handler = MediaHandler(self.config_manager, None, self.logger, service_manager=self)
-            self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
             self.calendar_handler = CalendarHandler(self.config_manager, self.logger)
+            self.logger.info(f"📅 CalendarHandler создан: {type(self.calendar_handler).__name__}")
+            
             self.calendar_integration_handler = CalendarIntegrationHandler(self.config_manager, self.notion_handler, self.calendar_handler, self.logger)
+            self.logger.info(f"📅 CalendarIntegrationHandler создан с calendar_handler: {type(self.calendar_integration_handler.calendar_handler).__name__}")
             self.metrics_handler = MetricsHandler(self.config_manager, self.logger)
             self.smart_report_generator = SmartReportGenerator(self.logger)
             self.logger.info("✅ SmartReportGenerator инициализирован")

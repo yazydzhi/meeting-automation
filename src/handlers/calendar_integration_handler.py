@@ -29,7 +29,16 @@ class CalendarIntegrationHandler(BaseHandler):
         """
         super().__init__(config_manager, logger)
         self.notion_handler = notion_handler
-        self.calendar_handler = calendar_handler or CalendarHandler(config_manager, logger)
+        
+        # Отладочная информация
+        if calendar_handler:
+            self.logger.info(f"📅 Используем переданный calendar_handler: {type(calendar_handler).__name__}")
+            self.calendar_handler = calendar_handler
+        else:
+            self.logger.info("📅 Создаем новый CalendarHandler")
+            self.calendar_handler = CalendarHandler(config_manager, logger)
+            self.logger.info(f"📅 CalendarHandler создан: {type(self.calendar_handler).__name__}")
+        
         self.calendar_events_cache = {}
         self.folder_notion_mapping = {}
     
@@ -137,27 +146,6 @@ class CalendarIntegrationHandler(BaseHandler):
                 return self._get_sample_work_events()
             else:
                 return []
-        """
-        Загружает события календаря для указанного аккаунта.
-        
-        Args:
-            account_type: Тип аккаунта
-            
-        Returns:
-            Список событий календаря
-        """
-        try:
-            # TODO: Реализовать загрузку событий календаря
-            # Пока используем заглушку для тестирования
-            if account_type == 'personal':
-                return self._get_sample_personal_events()
-            elif account_type == 'work':
-                return self._get_sample_work_events()
-            else:
-                return []
-        except Exception as e:
-            self.logger.error(f"❌ Ошибка загрузки событий календаря для {account_type}: {e}")
-            return []
     
     def _process_single_event(self, event: Dict[str, Any], account_type: str) -> Dict[str, Any]:
         """
