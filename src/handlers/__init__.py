@@ -11,6 +11,8 @@ from .transcription_handler import TranscriptionHandler
 from .summary_handler import SummaryHandler
 from .media_handler import MediaHandler
 from .notion_handler import NotionHandler
+from .calendar_handler import CalendarHandler
+from .notion_api import NotionAPI
 from .calendar_integration_handler import CalendarIntegrationHandler
 
 __all__ = [
@@ -22,5 +24,7 @@ __all__ = [
     'SummaryHandler',
     'MediaHandler',
     'NotionHandler',
-    'CalendarIntegrationHandler'
+    'CalendarIntegrationHandler',
+    'CalendarHandler',
+    'NotionAPI'
 ]

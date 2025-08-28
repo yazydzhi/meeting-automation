@@ -12,12 +12,13 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from pathlib import Path
 from .base_handler import BaseHandler, retry
+from .calendar_handler import CalendarHandler
 
 
 class CalendarIntegrationHandler(BaseHandler):
     """Обработчик интеграции календаря с папками и Notion."""
     
-    def __init__(self, config_manager, notion_handler=None, logger=None):
+    def __init__(self, config_manager, notion_handler=None, calendar_handler=None, logger=None):
         """
         Инициализация обработчика интеграции календаря.
         
@@ -28,6 +29,7 @@ class CalendarIntegrationHandler(BaseHandler):
         """
         super().__init__(config_manager, logger)
         self.notion_handler = notion_handler
+        self.calendar_handler = calendar_handler or CalendarHandler(config_manager, logger)
         self.calendar_events_cache = {}
         self.folder_notion_mapping = {}
     
@@ -102,6 +104,39 @@ class CalendarIntegrationHandler(BaseHandler):
             return self._create_error_result(e, f"обработка событий календаря {account_type}")
     
     def _load_calendar_events(self, account_type: str) -> List[Dict[str, Any]]:
+        """
+        Загружает события календаря для указанного аккаунта.
+        
+        Args:
+            account_type: Тип аккаунта
+            
+        Returns:
+            Список событий календаря
+        """
+        try:
+            if self.calendar_handler:
+                # Используем реальный CalendarHandler
+                events = self.calendar_handler.get_calendar_events(account_type, days_ahead=7)
+                self.logger.info(f"📅 Получено {len(events)} событий из календаря для {account_type}")
+                return events
+            else:
+                # Fallback на тестовые данные
+                self.logger.warning("⚠️ CalendarHandler недоступен, используем тестовые данные")
+                if account_type == "personal":
+                    return self._get_sample_personal_events()
+                elif account_type == "work":
+                    return self._get_sample_work_events()
+                else:
+                    return []
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка загрузки событий календаря для {account_type}: {e}")
+            # Fallback на тестовые данные
+            if account_type == "personal":
+                return self._get_sample_personal_events()
+            elif account_type == "work":
+                return self._get_sample_work_events()
+            else:
+                return []
         """
         Загружает события календаря для указанного аккаунта.
         

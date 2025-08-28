@@ -38,6 +38,8 @@ except ImportError as e:
 # Импортируем новые модульные обработчики
 try:
     from src.handlers import (
+        CalendarHandler,
+        
         CalendarIntegrationHandler,
         
         AccountHandler,
@@ -189,10 +191,12 @@ class MeetingAutomationService:
             # Передаем self (ServiceManager) в MediaHandler для доступа к кэшу
             self.media_handler = MediaHandler(self.config_manager, None, self.logger, service_manager=self)
             self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
-            self.calendar_integration_handler = CalendarIntegrationHandler(self.config_manager, self.notion_handler, self.logger)
+            self.calendar_handler = CalendarHandler(self.config_manager, self.logger)
+            self.calendar_integration_handler = CalendarIntegrationHandler(self.config_manager, self.notion_handler, self.calendar_handler, self.logger)
             self.metrics_handler = MetricsHandler(self.config_manager, self.logger)
             self.smart_report_generator = SmartReportGenerator(self.logger)
             self.logger.info("✅ SmartReportGenerator инициализирован")
+            self.logger.info("✅ CalendarHandler инициализирован")
             self.logger.info("✅ CalendarIntegrationHandler инициализирован")
             
             self.logger.info("✅ Все модульные обработчики инициализированы")
