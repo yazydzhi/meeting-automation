@@ -177,7 +177,7 @@ class CalendarIntegrationHandler(BaseHandler):
             folder_path = folder_result['folder_path']
             
             # Создаем страницу в Notion
-            notion_result = self._create_notion_page(event, folder_path, account_type)
+            notion_result = self._create_notion_page(event, account_type)
             if not notion_result['success']:
                 self.logger.warning(f"⚠️ Не удалось создать страницу Notion для {event_title}: {notion_result['message']}")
                 # Продолжаем работу, так как папка создана
@@ -369,13 +369,12 @@ class CalendarIntegrationHandler(BaseHandler):
 """
         return content
     
-    def _create_notion_page(self, event: Dict[str, Any], folder_path: str, account_type: str) -> Dict[str, Any]:
+    def _create_notion_page(self, event: Dict[str, Any], account_type: str) -> Dict[str, Any]:
         """
-        Создает страницу встречи в Notion.
+        Создает страницу в Notion для события.
         
         Args:
             event: Событие календаря
-            folder_path: Путь к папке встречи
             account_type: Тип аккаунта
             
         Returns:
@@ -385,18 +384,23 @@ class CalendarIntegrationHandler(BaseHandler):
             if not self.notion_handler:
                 return {"success": False, "message": "Notion handler not available"}
             
-            # TODO: Реализовать создание страницы через NotionHandler
-            # Пока возвращаем заглушку
-            self.logger.info(f"📝 Создание страницы Notion для {event.get('title', 'Unknown')} (заглушка)")
+            # Создаем страницу через NotionHandler
+            page_data = self.notion_handler._prepare_page_data(event, "", account_type)
+            notion_page = self.notion_handler._create_notion_page(page_data)
             
-            return {
-                "success": True,
-                "page_id": f"notion_page_{account_type}_{event.get('id', 'unknown')}",
-                "page_id": f"notion_page_{account_type}_{event.get('id', 'unknown')}",
-                "message": "Notion page creation not yet implemented"
-            }
+            if notion_page:
+                self.logger.info(f"✅ Страница Notion создана для {event.get('title', 'Unknown')}: {notion_page.get('page_id')}")
+                return {
+                    "success": True,
+                    "page_id": notion_page.get('page_id'),
+                    "message": "Notion page created successfully"
+                }
+            else:
+                self.logger.error(f"❌ Не удалось создать страницу Notion для {event.get('title', 'Unknown')}")
+                return {"success": False, "message": "Failed to create Notion page"}
             
         except Exception as e:
+            self.logger.error(f"❌ Ошибка создания страницы Notion: {e}")
             return {"success": False, "message": str(e)}
     
     def _get_account_config(self, account_type: str) -> Optional[Dict[str, Any]]:

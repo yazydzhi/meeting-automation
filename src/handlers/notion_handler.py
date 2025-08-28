@@ -663,19 +663,26 @@ class NotionHandler(BaseHandler):
             Созданная страница Notion или None
         """
         try:
-            # TODO: Реализовать создание через API Notion
-            # Пока возвращаем заглушку
-            self.logger.info(f"📝 Создание страницы Notion (заглушка): {page_data}")
+            # Используем notion_templates для создания страницы
+            from notion_templates import create_meeting_page
             
-            # Возвращаем тестовую страницу
-            return {
-                "id": f"test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
-                "url": f"https://notion.so/test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
-                "page_id": f"test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
-                "url": f"https://notion.so/test_page_{page_data.get('title', 'unknown').replace(' ', '_')}",
-                "title": page_data.get("title", "Unknown"),
-                "created": datetime.now().isoformat()
-            }
+            # Создаем страницу через notion_templates
+            result = create_meeting_page(page_data, self.config_manager)
+            
+            if result and result.get('status') == 'success':
+                page_id = result.get('page_id')
+                self.logger.info(f"✅ Страница Notion успешно создана: {page_id}")
+                
+                return {
+                    "id": page_id,
+                    "url": f"https://notion.so/{page_id}",
+                    "page_id": page_id,
+                    "title": page_data.get("title", "Unknown"),
+                    "created": datetime.now().isoformat()
+                }
+            else:
+                self.logger.error(f"❌ Ошибка создания страницы Notion: {result.get('message', 'Unknown error')}")
+                return None
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка создания страницы через API Notion: {e}")
