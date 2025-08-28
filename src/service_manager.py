@@ -45,6 +45,7 @@ try:
         NotionHandler,
         MetricsHandler
     )
+    from handlers.smart_report_generator import SmartReportGenerator
     NEW_HANDLERS_AVAILABLE = True
     print("✅ Новые модульные обработчики загружены")
 except ImportError as e:
@@ -178,9 +179,12 @@ class MeetingAutomationService:
             self.account_handler = AccountHandler(self.config_manager, None, self.logger)
             self.transcription_handler_new = TranscriptionHandler(self.config_manager, None, self.logger)
             self.summary_handler = SummaryHandler(self.config_manager, None, self.logger)
-            self.media_handler = MediaHandler(self.config_manager, None, self.logger)
+            # Передаем self (ServiceManager) в MediaHandler для доступа к кэшу
+            self.media_handler = MediaHandler(self.config_manager, None, self.logger, service_manager=self)
             self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
             self.metrics_handler = MetricsHandler(self.config_manager, self.logger)
+            self.smart_report_generator = SmartReportGenerator(self.logger)
+            self.logger.info("✅ SmartReportGenerator инициализирован")
             
             self.logger.info("✅ Все модульные обработчики инициализированы")
                 
@@ -830,11 +834,28 @@ class MeetingAutomationService:
             else:
                 self.logger.info("📱 Принудительная отправка включена")
             
-            # Формируем детальный отчет
-            report = self._format_detailed_report(current_state)
+            # Формируем умный отчет через SmartReportGenerator
+            self.logger.info("🔍 Использую SmartReportGenerator для формирования отчета...")
+            try:
+                report = self.smart_report_generator.generate_smart_report(
+                    current_state, previous_state, 
+                    current_state.get('execution_time', 0) if current_state else 0
+                )
+                self.logger.info(f"🔍 SmartReportGenerator вернул: {type(report)}, длина: {len(report) if report else 0}")
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка в SmartReportGenerator: {e}")
+                self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+                report = None
+            
+            # Если отчет не сгенерирован (нет изменений), пропускаем отправку
+            if not report:
+                self.logger.info("⏭️ SmartReportGenerator не обнаружил изменений, пропускаю отправку")
+                return {"status": "skipped", "message": "No changes detected by SmartReportGenerator"}
             
             # Отправляем уведомление с правильным типом
             self.logger.info("📱 Отправка детального отчета в Telegram...")
+            self.logger.info(f"🔍 Содержимое отчета (первые 200 символов): {report[:200]}...")
+            self.logger.info(f"🔍 Полный отчет: {report}")
             
             cmd = [
                 sys.executable,
@@ -847,6 +868,13 @@ class MeetingAutomationService:
             self.logger.info(f"🔄 Запуск команды: {' '.join(cmd[:4])}...")
             
             process = subprocess.run(cmd, capture_output=True, text=True)
+            
+            # Логируем результат выполнения команды
+            self.logger.info(f"🔍 Команда выполнена: returncode={process.returncode}")
+            if process.stdout:
+                self.logger.info(f"🔍 stdout: {process.stdout}")
+            if process.stderr:
+                self.logger.info(f"🔍 stderr: {process.stderr}")
             
             if process.returncode == 0:
                 self.logger.info("✅ Детальный отчет отправлен в Telegram успешно")
@@ -898,20 +926,26 @@ class MeetingAutomationService:
             if self.config_manager and self.config_manager.is_personal_enabled():
                 personal_config = self.config_manager.get_personal_config()
                 personal_folder = personal_config.get('local_drive_root')
+                self.logger.info(f"🔍 Личный аккаунт: папка = {personal_folder}, существует = {os.path.exists(personal_folder) if personal_folder else False}")
                 if personal_folder and os.path.exists(personal_folder):
                     # Создаем статус в корневой папке
                     self._create_folder_status_file(personal_folder, "personal")
                     # Создаем статус в каждой папке встречи
                     self._create_meeting_status_files(personal_folder, "personal")
+                else:
+                    self.logger.warning(f"⚠️ Папка личного аккаунта недоступна: {personal_folder}")
             
             if self.config_manager and self.config_manager.is_work_enabled():
                 work_config = self.config_manager.get_work_config()
                 work_folder = work_config.get('local_drive_root')
+                self.logger.info(f"🔍 Рабочий аккаунт: папка = {work_folder}, существует = {os.path.exists(work_folder) if work_folder else False}")
                 if work_folder and os.path.exists(work_folder):
                     # Создаем статус в корневой папке
                     self._create_folder_status_file(work_folder, "work")
                     # Создаем статус в каждой папке встречи
                     self._create_meeting_status_files(work_folder, "work")
+                else:
+                    self.logger.warning(f"⚠️ Папка рабочего аккаунта недоступна: {work_folder}")
             
             self.logger.info("✅ Файлы статуса созданы")
             

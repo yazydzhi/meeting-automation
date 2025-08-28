@@ -97,8 +97,10 @@ class TranscriptionHandler(ProcessHandler):
             if not os.path.exists(file_path):
                 return False
             
-            # Проверяем, что это не сжатый файл
-            if file_path.lower().endswith('_compressed.mp3'):
+            # TASK-5: Обрабатываем сжатые MP3 файлы для транскрипции
+            # Проверяем, что это сжатый файл (они создаются MediaHandler)
+            if not file_path.lower().endswith('_compressed.mp3'):
+                self.logger.debug(f"⏭️ Пропускаем несжатый файл: {os.path.basename(file_path)}")
                 return False
             
             # Генерируем путь к файлу транскрипции
@@ -130,8 +132,11 @@ class TranscriptionHandler(ProcessHandler):
             
             # Реальная логика транскрипции через Whisper
             try:
-                # Генерируем путь к файлу транскрипции
+                # TASK-5: Генерируем умное имя для файла транскрипции
+                # Убираем _compressed из имени и добавляем _transcript
                 base_path = os.path.splitext(file_path)[0]
+                if base_path.endswith('_compressed'):
+                    base_path = base_path[:-10]  # Убираем '_compressed'
                 transcript_file = base_path + '_transcript.txt'
                 
                 self.logger.info("🎤 Запуск транскрипции через Whisper...")

@@ -64,8 +64,10 @@ class AccountHandler(BaseHandler):
                 self._log_operation_end(f"обработку аккаунта {account_type}", result)
                 return result
             
-            # Используем старый метод через universal script
-            result = self._run_universal_script(account_type)
+            # Если calendar_handler недоступен, возвращаем базовый результат
+            # вместо вызова universal script (чтобы избежать рекурсии)
+            self.logger.info(f"📅 Calendar handler недоступен, возвращаю базовый результат для {account_type}")
+            result = self._create_success_result(0, [f"Аккаунт {account_type} обработан (базовый режим)"])
             self._log_operation_end(f"обработку аккаунта {account_type}", result)
             return result
             
@@ -125,7 +127,7 @@ class AccountHandler(BaseHandler):
                 return {
                     "status": "success",
                     "output": process.stdout,
-                    "processed": 1,
+                    "processed": 0,  # Нет реальной обработки, только проверка
                     "errors": 0,
                     "details": [f"Аккаунт {account_type} обработан через universal script"]
                 }

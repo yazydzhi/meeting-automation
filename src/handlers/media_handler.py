@@ -13,7 +13,7 @@ from .base_handler import BaseHandler, retry
 class MediaHandler(BaseHandler):
     """Обработчик медиа файлов."""
     
-    def __init__(self, config_manager, media_processor=None, logger=None):
+    def __init__(self, config_manager, media_processor=None, logger=None, service_manager=None):
         """
         Инициализация обработчика медиа.
         
@@ -21,9 +21,11 @@ class MediaHandler(BaseHandler):
             config_manager: Менеджер конфигурации
             media_processor: Существующий обработчик медиа (если есть)
             logger: Логгер
+            service_manager: Ссылка на ServiceManager для доступа к кэшу
         """
         super().__init__(config_manager, logger)
         self.media_processor = media_processor
+        self.service_manager = service_manager  # Для доступа к кэшу
         self.last_media_check = 0
         self.media_check_interval = 1800  # 30 минут по умолчанию
         self.last_media_stats = {}
@@ -154,18 +156,37 @@ class MediaHandler(BaseHandler):
             
             self.logger.info(f"🎬 Найдено {len(video_files)} видео файлов для обработки")
             
-            # Обрабатываем каждый видео файл
+            # TASK-5: Сортируем файлы по времени создания (самый ранний = индекс 1)
+            video_files_with_time = []
             for video_file in video_files:
                 try:
-                    if self._process_video_file(video_file, quality):
+                    creation_time = os.path.getctime(video_file)
+                    video_files_with_time.append((video_file, creation_time))
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Не удалось получить время создания файла {video_file}: {e}")
+                    # Если не удалось получить время, используем текущее время
+                    video_files_with_time.append((video_file, time.time()))
+            
+            # Сортируем по времени создания (от самого раннего к самому позднему)
+            video_files_with_time.sort(key=lambda x: x[1])
+            
+            self.logger.info(f"🔧 TASK-5: Файлы отсортированы по времени создания:")
+            for i, (video_file, creation_time) in enumerate(video_files_with_time, 1):
+                file_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(creation_time))
+                self.logger.info(f"   {i}. {os.path.basename(video_file)} ({file_time})")
+            
+            # Обрабатываем каждый видео файл с правильным индексом
+            for index, (video_file, creation_time) in enumerate(video_files_with_time, 1):
+                try:
+                    if self._process_video_file_with_index(video_file, quality, index):
                         result["processed"] += 1
                         result["files"].append(video_file)
-                        self.logger.debug(f"✅ Обработан видео файл: {video_file}")
+                        self.logger.debug(f"✅ Обработан видео файл {index}: {video_file}")
                     else:
                         result["errors"] += 1
-                        self.logger.warning(f"⚠️ Не удалось обработать видео файл: {video_file}")
+                        self.logger.warning(f"⚠️ Не удалось обработать видео файл {index}: {video_file}")
                 except Exception as e:
-                    self.logger.error(f"❌ Ошибка обработки видео файла {video_file}: {e}")
+                    self.logger.error(f"❌ Ошибка обработки видео файла {index} {video_file}: {e}")
                     result["errors"] += 1
             
             return result
@@ -194,7 +215,14 @@ class MediaHandler(BaseHandler):
                     if any(file.lower().endswith(ext) for ext in video_extensions):
                         # Проверяем, что это не уже сжатый файл
                         if not file.lower().endswith('_compressed.mp4'):
-                            video_files.append(os.path.join(root, file))
+                            file_path = os.path.join(root, file)
+                            
+                            # ИНТЕГРАЦИЯ С МЕХАНИЗМОМ ИСКЛЮЧЕНИЯ: Проверяем, не обработан ли уже файл
+                            if self.service_manager and self.service_manager._is_file_processed(file_path):
+                                self.logger.info(f"⏭️ Файл уже обработан (пропускаем): {os.path.basename(file)}")
+                                continue
+                            
+                            video_files.append(file_path)
             
             return video_files
             
@@ -202,24 +230,24 @@ class MediaHandler(BaseHandler):
             self.logger.error(f"❌ Ошибка поиска видео файлов в {folder_path}: {e}")
             return []
     
-    def _process_video_file(self, video_file: str, quality: str) -> bool:
+    def _process_video_file_with_index(self, video_file: str, quality: str, file_index: int) -> bool:
         """
-        TASK-5: Обрабатывает видео файл с поддержкой удаления оригиналов.
+        TASK-5: Обрабатывает видео файл с поддержкой удаления оригиналов и умным именованием.
         
         Args:
             video_file: Путь к видео файлу
             quality: Качество сжатия
+            file_index: Индекс файла для нумерации
             
         Returns:
             True если обработка успешна, False иначе
         """
         try:
-            self.logger.info(f"🎬 TASK-5: Обрабатываю видео: {os.path.basename(video_file)}")
+            self.logger.info(f"🎬 TASK-5: Обрабатываю видео #{file_index}: {os.path.basename(video_file)}")
             
-            # Генерируем пути к файлам
-            base_path = os.path.splitext(video_file)[0]
-            compressed_video = base_path + '_compressed.mp4'
-            compressed_audio = base_path + '_compressed.mp3'
+            # TASK-5: Генерируем умные имена файлов на основе названия папки встречи
+            meeting_folder = os.path.dirname(video_file)
+            compressed_video, compressed_audio = self._generate_smart_filename(video_file, meeting_folder, file_index)
             
             # TASK-5: Проверяем настройку удаления оригиналов
             should_delete = self.config_manager.should_delete_original_videos()
@@ -240,9 +268,25 @@ class MediaHandler(BaseHandler):
             self.logger.info(f"✅ Создан сжатый видео файл: {compressed_video}")
             self.logger.info(f"✅ Создан сжатый аудио файл: {compressed_audio}")
             
+            # ИНТЕГРАЦИЯ С МЕХАНИЗМОМ ИСКЛЮЧЕНИЯ: Отмечаем файл как обработанный
+            if self.service_manager:
+                self.service_manager._mark_file_processed(video_file)
+                self.logger.info(f"✅ Файл отмечен как обработанный: {os.path.basename(video_file)}")
+            
             # TASK-5: Логируем информацию о файлах
             if should_delete:
                 self.logger.info(f"🔧 TASK-5: Система настроена на удаление оригиналов при совпадении длины")
+                
+                # TASK-5: Сравниваем длину оригинального и сжатого видео
+                if self._compare_video_duration(video_file, compressed_video):
+                    self.logger.info(f"🔧 TASK-5: Длины видео совпадают, удаляю оригинал: {os.path.basename(video_file)}")
+                    try:
+                        os.remove(video_file)
+                        self.logger.info(f"✅ TASK-5: Оригинальный файл удален: {os.path.basename(video_file)}")
+                    except Exception as e:
+                        self.logger.error(f"❌ TASK-5: Не удалось удалить оригинальный файл {video_file}: {e}")
+                else:
+                    self.logger.warning(f"⚠️ TASK-5: Длины видео НЕ совпадают, оригинал сохранен: {os.path.basename(video_file)}")
             else:
                 self.logger.info(f"🔧 TASK-5: Система настроена на сохранение оригиналов")
             
@@ -251,6 +295,20 @@ class MediaHandler(BaseHandler):
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки видео файла {video_file}: {e}")
             return False
+    
+    def _process_video_file(self, video_file: str, quality: str) -> bool:
+        """
+        TASK-5: Обрабатывает видео файл с поддержкой удаления оригиналов (для обратной совместимости).
+        
+        Args:
+            video_file: Путь к видео файлу
+            quality: Качество сжатия
+            
+        Returns:
+            True если обработка успешна, False иначе
+        """
+        # Вызываем новый метод с индексом 1 (для одного файла)
+        return self._process_video_file_with_index(video_file, quality, 1)
     
     def set_media_check_interval(self, interval: int):
         """
@@ -326,6 +384,142 @@ class MediaHandler(BaseHandler):
             return False
         except Exception as e:
             self.logger.error(f"❌ Ошибка сжатия видео {input_file}: {e}")
+            return False
+    
+    def _generate_smart_filename(self, video_file: str, meeting_folder: str, file_index: int = 1) -> tuple[str, str]:
+        """
+        Генерирует умные имена для сжатого видео и аудио файлов на основе названия папки встречи.
+        
+        Args:
+            video_file: Путь к оригинальному видео файлу
+            meeting_folder: Путь к папке встречи
+            file_index: Индекс файла (для нумерации при нескольких файлах)
+            
+        Returns:
+            Кортеж (имя_сжатого_видео, имя_сжатого_аудио)
+        """
+        try:
+            # Получаем название папки встречи
+            meeting_name = os.path.basename(meeting_folder)
+            
+            # Очищаем название от специальных символов для использования в имени файла
+            safe_meeting_name = self._sanitize_filename(meeting_name)
+            
+            # Генерируем имена файлов
+            if file_index == 1:
+                compressed_video_name = f"{safe_meeting_name}_compressed.mp4"
+                compressed_audio_name = f"{safe_meeting_name}_compressed.mp3"
+            else:
+                compressed_video_name = f"{safe_meeting_name}_{file_index}_compressed.mp4"
+                compressed_audio_name = f"{safe_meeting_name}_{file_index}_compressed.mp3"
+            
+            # Формируем полные пути
+            compressed_video_path = os.path.join(meeting_folder, compressed_video_name)
+            compressed_audio_path = os.path.join(meeting_folder, compressed_audio_name)
+            
+            self.logger.info(f"🔧 TASK-5: Сгенерированы умные имена файлов:")
+            self.logger.info(f"   📹 Видео: {compressed_video_name}")
+            self.logger.info(f"   🎵 Аудио: {compressed_audio_name}")
+            
+            return compressed_video_path, compressed_audio_path
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка генерации умных имен файлов: {e}")
+            # Возвращаем стандартные имена в случае ошибки
+            base_path = os.path.splitext(video_file)[0]
+            return base_path + '_compressed.mp4', base_path + '_compressed.mp3'
+    
+    def _sanitize_filename(self, filename: str) -> str:
+        """
+        Очищает имя файла от недопустимых символов.
+        
+        Args:
+            filename: Исходное имя файла
+            
+        Returns:
+            Очищенное имя файла
+        """
+        # Заменяем недопустимые символы на подчеркивания
+        invalid_chars = '<>:"/\\|?*'
+        sanitized = filename
+        for char in invalid_chars:
+            sanitized = sanitized.replace(char, '_')
+        
+        # Убираем множественные подчеркивания
+        while '__' in sanitized:
+            sanitized = sanitized.replace('__', '_')
+        
+        # Убираем подчеркивания в начале и конце
+        sanitized = sanitized.strip('_')
+        
+        # Ограничиваем длину имени файла
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100]
+        
+        return sanitized
+    
+    def _compare_video_duration(self, original_file: str, compressed_file: str) -> bool:
+        """
+        TASK-5: Сравнивает длину оригинального и сжатого видео файлов.
+        
+        Args:
+            original_file: Путь к оригинальному видео файлу
+            compressed_file: Путь к сжатому видео файлу
+            
+        Returns:
+            True если длины совпадают (с погрешностью 1 секунда), False иначе
+        """
+        try:
+            import subprocess
+            import json
+            
+            # Получаем длину оригинального файла
+            cmd_original = [
+                'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                '-of', 'json', original_file
+            ]
+            
+            result_original = subprocess.run(cmd_original, capture_output=True, text=True, timeout=30)
+            if result_original.returncode != 0:
+                self.logger.error(f"❌ Не удалось получить длину оригинального файла: {result_original.stderr}")
+                return False
+            
+            # Получаем длину сжатого файла
+            cmd_compressed = [
+                'ffprobe', '-v', 'quiet', '-show_entries', 'format=duration',
+                '-of', 'json', compressed_file
+            ]
+            
+            result_compressed = subprocess.run(cmd_compressed, capture_output=True, text=True, timeout=30)
+            if result_compressed.returncode != 0:
+                self.logger.error(f"❌ Не удалось получить длину сжатого файла: {result_compressed.stderr}")
+                return False
+            
+            # Парсим JSON ответы
+            try:
+                original_data = json.loads(result_original.stdout)
+                compressed_data = json.loads(result_compressed.stdout)
+                
+                original_duration = float(original_data['format']['duration'])
+                compressed_duration = float(compressed_data['format']['duration'])
+                
+                # Сравниваем длину с погрешностью 1 секунда
+                duration_diff = abs(original_duration - compressed_duration)
+                
+                self.logger.info(f"🔍 TASK-5: Сравнение длин видео:")
+                self.logger.info(f"   📹 Оригинал: {original_duration:.2f} сек")
+                self.logger.info(f"   🎥 Сжатый: {compressed_duration:.2f} сек")
+                self.logger.info(f"   📊 Разница: {duration_diff:.2f} сек")
+                
+                # Возвращаем True если разница меньше 1 секунды
+                return duration_diff < 1.0
+                
+            except (KeyError, ValueError, json.JSONDecodeError) as e:
+                self.logger.error(f"❌ Ошибка парсинга длин видео: {e}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сравнения длин видео: {e}")
             return False
     
     def _extract_audio(self, input_file: str, output_file: str) -> bool:

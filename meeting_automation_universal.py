@@ -114,7 +114,7 @@ def process_media(config_manager: ConfigManager, quality: str = 'medium', logger
         media_handler = MediaHandler(config_manager, logger=logger)
         
         # Обрабатываем медиа файлы
-        result = media_handler.process_all_accounts(quality=quality)
+        result = media_handler.process()
         
         logger.info("✅ Обработка медиа завершена")
         return result
@@ -137,12 +137,12 @@ def process_transcription(config_manager: ConfigManager, account_type: str, file
         if file_path:
             # Транскрибируем конкретный файл
             logger.info(f"🎵 Транскрибирую файл: {file_path}")
-            result = transcription_handler.process_single_file(file_path, account_type)
+            result = transcription_handler.process_folder_files(file_path, account_type)
             return result
         else:
             # Транскрибируем все MP3 файлы в папках аккаунтов
             logger.info(f"🎵 Транскрибирую все MP3 файлы для аккаунта: {account_type}")
-            result = transcription_handler.process_account(account_type)
+            result = transcription_handler.process_with_accounts(account_type)
             return result
         
     except Exception as e:
@@ -161,7 +161,7 @@ def process_notion_sync(config_manager: ConfigManager, account_type: str, logger
         notion_handler = NotionHandler(config_manager, logger=logger)
         
         # Синхронизируем с Notion
-        result = notion_handler.sync_account(account_type)
+        result = notion_handler.process()
         
         logger.info("✅ Синхронизация с Notion завершена")
         return result
