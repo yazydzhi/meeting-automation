@@ -197,14 +197,21 @@ class MeetingAutomationService:
         
         # Настраиваем логгер
         logger = logging.getLogger("meeting_automation_service")
-        logger.setLevel(logging.getLevelName(log_level))
         
-        # Предотвращаем дублирование логов
+        # ПРИНУДИТЕЛЬНО очищаем ВСЕ существующие хендлеры
+        # Это предотвращает дублирование при повторной инициализации
+        while logger.handlers:
+            logger.removeHandler(logger.handlers[0])
+        
+        # Сбрасываем уровень и propagate
+        logger.setLevel(logging.getLevelName(log_level))
         logger.propagate = False
         
-        # Очищаем существующие хендлеры
-        for handler in logger.handlers[:]:
-            logger.removeHandler(handler)
+        # Дополнительная проверка - очищаем еще раз
+        if logger.handlers:
+            print(f"⚠️ ВНИМАНИЕ: В логгере {logger.name} остались хендлеры: {len(logger.handlers)}")
+            for handler in logger.handlers[:]:
+                logger.removeHandler(handler)
         
         # Форматтер
         formatter = logging.Formatter(
@@ -233,6 +240,9 @@ class MeetingAutomationService:
         # Добавляем хендлеры в основной логгер
         logger.addHandler(file_handler)
         logger.addHandler(console_handler)
+        
+        # Диагностика: проверяем количество хендлеров
+        print(f"🔍 Логгер '{logger.name}' настроен с {len(logger.handlers)} хендлерами")
         
         return logger
     
