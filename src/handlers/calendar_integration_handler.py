@@ -32,7 +32,7 @@ class CalendarIntegrationHandler(BaseHandler):
         self.folder_notion_mapping = {}
     
     @retry(max_attempts=2, delay=3, backoff=2)
-    def process_calendar_events(self, account_type: str) -> Dict[str, Any]:
+    def process(self, account_type: str = "personal") -> Dict[str, Any]:
         """
         Обрабатывает события календаря: создает папки и страницы Notion.
         

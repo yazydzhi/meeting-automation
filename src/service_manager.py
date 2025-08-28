@@ -37,7 +37,7 @@ except ImportError as e:
 
 # Импортируем новые модульные обработчики
 try:
-    from handlers import (
+    from src.handlers import (
         CalendarIntegrationHandler,
         
         AccountHandler,
@@ -178,6 +178,10 @@ class MeetingAutomationService:
         """Инициализация обработчиков для различных задач."""
         try:
             # Создаем экземпляры новых модульных обработчиков
+            # Сначала создаем notion_handler
+            self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
+            
+            # Затем создаем account_handler с notion_handler
             self.account_handler = AccountHandler(self.config_manager, None, self.notion_handler, self.logger)
             self.transcription_handler_new = TranscriptionHandler(self.config_manager, None, self.logger)
             self.summary_handler = SummaryHandler(self.config_manager, None, self.logger)
