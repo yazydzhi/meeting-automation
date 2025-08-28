@@ -136,6 +136,7 @@ class MeetingAutomationService:
         self.last_notion_stats = {}
         self.last_telegram_stats = {}
         self.last_summary_stats = {}
+        self.last_notion_update_stats = {}
         
         # Инициализируем переменные для хранения состояния
         self.previous_cycle_state = {}
@@ -1244,10 +1245,10 @@ class MeetingAutomationService:
             # Этап 4: Саммари и другая полезная информация
             self.logger.info("📋 ЭТАП 4: Генерация саммари и анализ транскрипций...")
             summary_start = time.time()
-            summary_stats = self.process_summaries()
+            summary_stats, notion_update_stats = self.process_summaries()
             summary_duration = time.time() - summary_start
             self.logger.info(f"⏱️ Время генерации саммари: {summary_duration:.2f} секунд")
-            self.logger.info(f"📊 Результат генерации саммари: обработано {summary_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
+            self.logger.info(f"📊 Результат генерации саммари: обработано {summary_stats, notion_update_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
             
             # Этап 5: Обновление Notion
             self.logger.info("📝 ЭТАП 5: Синхронизация с Notion...")
@@ -1267,7 +1268,7 @@ class MeetingAutomationService:
             
             # Создаем текущее состояние цикла
             self.current_cycle_state = self._create_cycle_state(
-                personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats
+                personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats, notion_update_stats
             )
             
             # Сохраняем текущее состояние
@@ -1309,7 +1310,7 @@ class MeetingAutomationService:
             self.logger.info(f"   🏢 Рабочий аккаунт: {work_stats['status']}")
             self.logger.info(f"   🎬 Медиа: обработано {media_stats.get('processed', 0)}, найдено {media_stats.get('synced', 0)}")
             self.logger.info(f"   🎤 Транскрипция: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
-            self.logger.info(f"   📋 Саммари: обработано {summary_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
+            self.logger.info(f"   📋 Саммари: обработано {summary_stats, notion_update_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
             self.logger.info(f"   📝 Notion: синхронизировано {notion_stats.get('synced', 0)}, ошибок {notion_stats.get('errors', 0)}")
             self.logger.info(f"   📱 Telegram: {telegram_stats.get('status', 'unknown')}")
             self.logger.info(f"⏱️ ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ ЦИКЛА: {total_duration:.2f} секунд")
@@ -1327,14 +1328,14 @@ class MeetingAutomationService:
     def process_summaries(self) -> Dict[str, Any]:
         """Обработка саммари для транскрипций."""
         try:
-            summary_stats = self.summary_handler.process()
-            self.last_summary_stats = summary_stats
-            return summary_stats
+            summary_stats, notion_update_stats = self.summary_handler.process()
+            self.last_summary_stats, notion_update_stats = summary_stats
+            return summary_stats, notion_update_stats
         except Exception as e:
             self.logger.error(f"❌ Ошибка генерации саммари: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
             error_stats = {"status": "error", "processed": 0, "errors": 1, "details": [str(e)]}
-            self.last_summary_stats = error_stats
+            self.last_summary_stats, notion_update_stats = error_stats
             return error_stats
     
 
@@ -1495,7 +1496,7 @@ class MeetingAutomationService:
                     media_stats.get("processed", 0) + 
                     transcription_stats.get("processed", 0) + 
                     notion_stats.get("processed", 0) + 
-                    summary_stats.get("processed", 0) + 
+                    summary_stats, notion_update_stats.get("processed", 0) + 
                     notion_update_stats.get("processed", 0)
                 ),
                 "errors_count": (
@@ -1504,7 +1505,7 @@ class MeetingAutomationService:
                     media_stats.get("errors", 0) + 
                     transcription_stats.get("errors", 0) + 
                     notion_stats.get("errors", 0) + 
-                    summary_stats.get("errors", 0) + 
+                    summary_stats, notion_update_stats.get("errors", 0) + 
                     notion_update_stats.get("errors", 0)
                 ),
                 
