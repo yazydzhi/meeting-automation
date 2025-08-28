@@ -441,6 +441,16 @@ class SummaryHandler(ProcessHandler):
                             f.write("- Используется базовый анализ\n")
                             f.write("- Для детального анализа настройте OpenAI API в .env файле\n")
                 
+                except Exception as e:
+                    self.logger.error(f"❌ Ошибка создания комплексного саммари: {e}")
+                    # Создаем базовое комплексное саммари в случае ошибки
+                    with open(complex_summary_file, 'w', encoding='utf-8') as f:
+                        f.write(f"# Комплексное саммари папки: {folder_name}\n\n")
+                        f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                        f.write(f"Количество видео: {len(all_transcripts)}\n\n")
+                        f.write(f"## Ошибка создания:\n")
+                        f.write(f"Не удалось создать комплексное саммари: {str(e)}\n")
+                
                 # Создаем комплексный анализ в JSON
                 complex_analysis = {
                     "folder_name": folder_name,
