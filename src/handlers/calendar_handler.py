@@ -10,6 +10,7 @@ import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone, timedelta
 from .base_handler import BaseHandler, retry
+import pytz
 
 try:
     from google.oauth2.credentials import Credentials
@@ -228,6 +229,8 @@ class CalendarHandler(BaseHandler):
             Отформатированное событие или None
         """
         try:
+            from datetime import date
+            
             # Извлекаем время события
             start_dt = component.get('dtstart')
             end_dt = component.get('dtend')
@@ -235,26 +238,56 @@ class CalendarHandler(BaseHandler):
             if not start_dt:
                 return None
             
-            # Преобразуем в datetime
-            if hasattr(start_dt.dt, 'date'):
-                start_time = start_dt.dt.isoformat()
-            else:
-                start_time = start_dt.dt.isoformat()
+            # Обрабатываем начальное время
+            start_dt_value = start_dt.dt
             
+            # Если это дата без времени (date), преобразуем в datetime
+            if isinstance(start_dt_value, date) and not isinstance(start_dt_value, datetime):
+                start_dt_value = datetime.combine(start_dt_value, datetime.min.time())
+                # Добавляем timezone UTC
+                if start_dt_value.tzinfo is None:
+                    start_dt_value = start_dt_value.replace(tzinfo=pytz.UTC)
+            
+            # Если datetime без timezone, добавляем UTC
+            if isinstance(start_dt_value, datetime) and start_dt_value.tzinfo is None:
+                start_dt_value = start_dt_value.replace(tzinfo=pytz.UTC)
+            
+            # Обрабатываем конечное время
             if end_dt:
-                if hasattr(end_dt.dt, 'date'):
-                    end_time_event = end_dt.dt.isoformat()
-                else:
-                    end_time_event = end_dt.dt.isoformat()
+                end_dt_value = end_dt.dt
+                
+                # Если это дата без времени, преобразуем в datetime
+                if isinstance(end_dt_value, date) and not isinstance(end_dt_value, datetime):
+                    end_dt_value = datetime.combine(end_dt_value, datetime.min.time())
+                    # Добавляем timezone UTC
+                    if end_dt_value.tzinfo is None:
+                        end_dt_value = end_dt_value.replace(tzinfo=pytz.UTC)
+                
+                # Если datetime без timezone, добавляем UTC
+                if isinstance(end_dt_value, datetime) and end_dt_value.tzinfo is None:
+                    end_dt_value = end_dt_value.replace(tzinfo=pytz.UTC)
             else:
                 # Если время окончания не указано, добавляем 1 час
-                start_dt_obj = start_dt.dt if hasattr(start_dt.dt, 'date') else start_dt.dt
-                end_time_event = (start_dt_obj + timedelta(hours=1)).isoformat()
+                end_dt_value = start_dt_value + timedelta(hours=1)
             
-            # Проверяем, что событие в нужном диапазоне
-            event_start = start_dt.dt if hasattr(start_dt.dt, 'date') else start_dt.dt
-            if event_start < now or event_start > end_time:
-                return None
+            # Убеждаемся, что now и end_time имеют timezone
+            if now.tzinfo is None:
+                now = now.replace(tzinfo=pytz.UTC)
+            if end_time.tzinfo is None:
+                end_time = end_time.replace(tzinfo=pytz.UTC)
+            
+            # Проверяем, что событие в нужном диапазоне времени (игнорируем timezone для простоты)
+            try:
+                # Простая проверка по дате, игнорируя timezone
+                start_naive = start_dt_value.replace(tzinfo=None) if start_dt_value.tzinfo else start_dt_value
+                now_naive = now.replace(tzinfo=None) if now.tzinfo else now
+                end_naive = end_time.replace(tzinfo=None) if end_time.tzinfo else end_time
+                
+                if start_naive < now_naive or start_naive > end_naive:
+                    return None
+            except:
+                # Если все остальное не работает, разрешаем событие
+                pass
             
             # Извлекаем основную информацию
             title = str(component.get('summary', 'Unknown Event'))
@@ -264,16 +297,28 @@ class CalendarHandler(BaseHandler):
             # Обрабатываем участников
             attendees = []
             if 'attendee' in component:
-                for attendee in component['attendee']:
-                    email = str(attendee).replace('mailto:', '')
-                    attendees.append(email)
+                try:
+                    attendee_prop = component['attendee']
+                    if isinstance(attendee_prop, list):
+                        for attendee in attendee_prop:
+                            email = str(attendee).replace('mailto:', '')
+                            attendees.append(email)
+                    else:
+                        email = str(attendee_prop).replace('mailto:', '')
+                        attendees.append(email)
+                except:
+                    # Если не получается обработать участников, продолжаем без них
+                    pass
             
-            # Формируем стандартный формат
+            # Формируем стандартный формат с правильными ISO строками
+            start_time_str = start_dt_value.isoformat()
+            end_time_str = end_dt_value.isoformat()
+            
             formatted_event = {
-                'id': f"ical_{hash(start_time + title)}",
+                'id': f"ical_{hash(start_time_str + title)}",
                 'title': title,
-                'start': start_time,
-                'end': end_time_event,
+                'start': start_time_str,
+                'end': end_time_str,
                 'attendees': attendees,
                 'attendees_count': len(attendees),
                 'description': description,

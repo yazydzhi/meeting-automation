@@ -745,3 +745,107 @@ def create_page_with_template(
         else:
             print(f"⚠️ Страница создана, но шаблон не применен: {page_id}")
         return page_id
+
+
+def create_meeting_page(event_data: Dict[str, Any], config_manager) -> Dict[str, Any]:
+    """
+    Создает страницу встречи в Notion.
+    
+    Args:
+        event_data: Данные события
+        config_manager: Менеджер конфигурации
+        
+    Returns:
+        Результат создания страницы
+    """
+    try:
+        # Получаем конфигурацию Notion
+        notion_config = config_manager.get_notion_config()
+        notion_token = notion_config.get('notion_token')
+        database_id = notion_config.get('database_id')
+        
+        if not notion_token or not database_id:
+            return {
+                "status": "error",
+                "page_id": None,
+                "message": "Не настроена конфигурация Notion"
+            }
+        
+        # Загружаем шаблон
+        try:
+            template = load_meeting_template()
+        except Exception as e:
+            return {
+                "status": "error",
+                "page_id": None,
+                "message": f"Ошибка загрузки шаблона: {e}"
+            }
+        
+        # Создаем страницу с шаблоном
+        page_id = create_page_with_template(
+            notion_token, 
+            database_id, 
+            event_data, 
+            template
+        )
+        
+        if page_id:
+            return {
+                "status": "success",
+                "page_id": page_id,
+                "message": "Страница встречи успешно создана"
+            }
+        else:
+            return {
+                "status": "error",
+                "page_id": None,
+                "message": "Не удалось создать страницу"
+            }
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "page_id": None,
+            "message": f"Ошибка создания страницы: {e}"
+        }
+
+
+def update_meeting_page(page_id: str, update_data: Dict[str, Any], config_manager) -> Dict[str, Any]:
+    """
+    Обновляет страницу встречи в Notion.
+    
+    Args:
+        page_id: ID страницы
+        update_data: Данные для обновления
+        config_manager: Менеджер конфигурации
+        
+    Returns:
+        Результат обновления страницы
+    """
+    try:
+        # Получаем конфигурацию Notion
+        notion_config = config_manager.get_notion_config()
+        notion_token = notion_config.get('notion_token')
+        
+        if not notion_token:
+            return {
+                "status": "error",
+                "page_id": page_id,
+                "message": "Не настроена конфигурация Notion"
+            }
+        
+        # Добавляем детальную информацию на страницу
+        add_meeting_details_to_page(notion_token, page_id, update_data)
+        
+        return {
+            "status": "success",
+            "page_id": page_id,
+            "message": "Страница встречи успешно обновлена"
+        }
+            
+    except Exception as e:
+        return {
+            "status": "error",
+            "page_id": page_id,
+            "message": f"Ошибка обновления страницы: {e}"
+        }
