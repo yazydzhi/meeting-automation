@@ -10,12 +10,13 @@ import subprocess
 import traceback
 from typing import Dict, Any, Optional
 from .base_handler import BaseHandler, retry
+from .calendar_integration_handler import CalendarIntegrationHandler
 
 
 class AccountHandler(BaseHandler):
     """Базовый класс для обработки аккаунтов."""
     
-    def __init__(self, config_manager, calendar_handler=None, logger=None):
+    def __init__(self, config_manager, calendar_handler=None, notion_handler=None, logger=None):
         """
         Инициализация обработчика аккаунтов.
         
@@ -26,6 +27,7 @@ class AccountHandler(BaseHandler):
         """
         super().__init__(config_manager, logger)
         self.calendar_handler = calendar_handler
+        self.calendar_integration_handler = CalendarIntegrationHandler(config_manager, notion_handler, logger)
     
     def process(self, account_type: str = 'personal') -> Dict[str, Any]:
         """
@@ -58,15 +60,15 @@ class AccountHandler(BaseHandler):
                 self.logger.info(f"⏭️ Аккаунт {account_type} пропущен (отключен в конфигурации)")
                 return self._create_success_result(0, [f"Аккаунт {account_type} отключен"])
             
-            # Пытаемся использовать новый обработчик календаря
-            if self.calendar_handler:
-                result = self.calendar_handler.process_account(account_type)
+            # Пытаемся использовать новый обработчик интеграции календаря
+            if self.calendar_integration_handler:
+                result = self.calendar_integration_handler.process_calendar_events(account_type)
                 self._log_operation_end(f"обработку аккаунта {account_type}", result)
                 return result
             
-            # Если calendar_handler недоступен, возвращаем базовый результат
+            # Если calendar_integration_handler недоступен, возвращаем базовый результат
             # вместо вызова universal script (чтобы избежать рекурсии)
-            self.logger.info(f"📅 Calendar handler недоступен, возвращаю базовый результат для {account_type}")
+            self.logger.info(f"📅 Calendar integration handler недоступен, возвращаю базовый результат для {account_type}")
             result = self._create_success_result(0, [f"Аккаунт {account_type} обработан (базовый режим)"])
             self._log_operation_end(f"обработку аккаунта {account_type}", result)
             return result
