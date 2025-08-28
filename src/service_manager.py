@@ -195,23 +195,26 @@ class MeetingAutomationService:
         log_dir = Path("logs")
         log_dir.mkdir(exist_ok=True)
         
-        # Настраиваем логгер
-        logger = logging.getLogger("meeting_automation_service")
-        
-        # ПРИНУДИТЕЛЬНО очищаем ВСЕ существующие хендлеры
-        # Это предотвращает дублирование при повторной инициализации
-        while logger.handlers:
-            logger.removeHandler(logger.handlers[0])
+        # РАДИКАЛЬНОЕ РЕШЕНИЕ: Создаем НОВЫЙ логгер каждый раз
+        # Это гарантирует отсутствие дублирующих хендлеров
+        logger_name = f"meeting_automation_service_{id(self)}"
+        logger = logging.getLogger(logger_name)
         
         # Сбрасываем уровень и propagate
         logger.setLevel(logging.getLevelName(log_level))
         logger.propagate = False
         
-        # Дополнительная проверка - очищаем еще раз
-        if logger.handlers:
-            print(f"⚠️ ВНИМАНИЕ: В логгере {logger.name} остались хендлеры: {len(logger.handlers)}")
-            for handler in logger.handlers[:]:
-                logger.removeHandler(handler)
+        # ПРИНУДИТЕЛЬНО очищаем ВСЕ существующие хендлеры
+        while logger.handlers:
+            logger.removeHandler(logger.handlers[0])
+        
+        # Дополнительно: очищаем ВСЕ логгеры с похожими именами
+        for existing_logger_name in logging.root.manager.loggerDict:
+            if existing_logger_name.startswith("meeting_automation_service"):
+                existing_logger = logging.getLogger(existing_logger_name)
+                while existing_logger.handlers:
+                    existing_logger.removeHandler(existing_logger.handlers[0])
+                print(f"🧹 Очищен логгер: {existing_logger_name}")
         
         # Форматтер
         formatter = logging.Formatter(
@@ -219,10 +222,12 @@ class MeetingAutomationService:
         )
         
         # Хендлер для основного лога (INFO и выше)
-                # Настройки ротации логов
+        # Настройки ротации логов
         max_bytes = int(os.getenv("LOG_MAX_SIZE_MB", "100")) * 1024 * 1024
         backup_count = int(os.getenv("LOG_BACKUP_COUNT", "5"))
         
+        # ФИНАЛЬНОЕ РЕШЕНИЕ: Используем ТОЛЬКО файловый хендлер
+        # Это предотвращает дублирование логов
         file_handler = RotatingFileHandler(
             log_dir / "service.log",
             maxBytes=max_bytes,
@@ -232,17 +237,22 @@ class MeetingAutomationService:
         file_handler.setLevel(logging.INFO)
         file_handler.setFormatter(formatter)
         
-        # Хендлер для консоли (только INFO)
-        console_handler = logging.StreamHandler()
-        console_handler.setLevel(logging.INFO)
-        console_handler.setFormatter(formatter)
-        
-        # Добавляем хендлеры в основной логгер
+        # Добавляем ТОЛЬКО файловый хендлер
         logger.addHandler(file_handler)
-        logger.addHandler(console_handler)
+        
+        # КОНСОЛЬНЫЙ ХЕНДЛЕР ОТКЛЮЧЕН для предотвращения дублирования
+        # console_handler = logging.StreamHandler()
+        # console_handler.setLevel(logging.INFO)
+        # console_handler.setFormatter(formatter)
+        # logger.addHandler(console_handler)
         
         # Диагностика: проверяем количество хендлеров
         print(f"🔍 Логгер '{logger.name}' настроен с {len(logger.handlers)} хендлерами")
+        print(f"🔍 ID логгера: {id(logger)}")
+        
+        # Дополнительная диагностика: проверяем хендлеры
+        for i, handler in enumerate(logger.handlers):
+            print(f"🔍 Хендлер {i}: {type(handler).__name__}")
         
         return logger
     
@@ -1119,6 +1129,9 @@ class MeetingAutomationService:
             
             # Засекаем время начала цикла
             self._cycle_start_time = time.time()
+            
+            # ДИАГНОСТИКА: проверяем количество хендлеров
+            print(f"🔍 Цикл #{self.cycle_counter}: логгер '{self.logger.name}' имеет {len(self.logger.handlers)} хендлеров")
             
             start_time = time.time()
             self.logger.info(f"🔄 Запуск цикла обработки #{self.cycle_counter}...")
