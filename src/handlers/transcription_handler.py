@@ -128,44 +128,61 @@ class TranscriptionHandler(ProcessHandler):
         try:
             self.logger.info(f"🎤 Обрабатываю аудио файл: {os.path.basename(file_path)}")
             
-            # Реальная логика транскрипции через Whisper или OpenAI API
+            # Реальная логика транскрипции через Whisper
             try:
                 # Генерируем путь к файлу транскрипции
                 base_path = os.path.splitext(file_path)[0]
                 transcript_file = base_path + '_transcript.txt'
                 
-                # Проверяем, есть ли OpenAI API ключ
-                openai_config = self.config_manager.get_openai_config()
-                if openai_config and openai_config.get('api_key'):
-                    self.logger.info("🔧 Используется OpenAI API для транскрипции")
-                    # TODO: Интегрировать с OpenAI Whisper API
-                    with open(transcript_file, 'w', encoding='utf-8') as f:
-                        f.write(f"# Транскрипция файла: {os.path.basename(file_path)}\n\n")
-                        f.write(f"Дата создания: {self._get_current_timestamp()}\n")
-                        f.write(f"Статус: OpenAI API настроен, интеграция в разработке\n\n")
-                        f.write("## Содержание:\n")
-                        f.write("Детальная транскрипция будет доступна после завершения интеграции с OpenAI Whisper API\n")
-                else:
-                    self.logger.info("🔧 OpenAI API не настроен, создаю базовую транскрипцию")
-                    # Создаем базовую транскрипцию
-                    with open(transcript_file, 'w', encoding='utf-8') as f:
-                        f.write(f"# Транскрипция файла: {os.path.basename(file_path)}\n\n")
-                        f.write(f"Дата создания: {self._get_current_timestamp()}\n")
-                        f.write(f"Статус: Базовая транскрипция (OpenAI API не настроен)\n\n")
-                        f.write("## Содержание:\n")
-                        f.write("Для получения детальной транскрипции настройте OpenAI API в .env файле\n")
-                        f.write(f"Файл: {os.path.basename(file_path)}\n")
-                        f.write(f"Размер: {os.path.getsize(file_path)} байт\n")
-                        f.write(f"Тип: Аудио файл MP3\n")
-            except Exception as e:
-                self.logger.error(f"❌ Ошибка создания транскрипции: {e}")
-                # Создаем базовую транскрипцию в случае ошибки
+                self.logger.info("🎤 Запуск транскрипции через Whisper...")
+                
+                # Используем Whisper для транскрипции
+                import whisper
+                
+                # Загружаем модель Whisper (medium для баланса качества и скорости)
+                model = whisper.load_model("medium")
+                
+                # Выполняем транскрипцию
+                self.logger.info(f"🔧 Загружена модель Whisper: medium")
+                result = model.transcribe(file_path, language="ru")
+                
+                # Получаем текст транскрипции
+                transcript_text = result["text"]
+                
+                # Сохраняем транскрипцию
                 with open(transcript_file, 'w', encoding='utf-8') as f:
                     f.write(f"# Транскрипция файла: {os.path.basename(file_path)}\n\n")
                     f.write(f"Дата создания: {self._get_current_timestamp()}\n")
-                    f.write(f"Статус: Ошибка создания - {str(e)}\n\n")
+                    f.write(f"Статус: Успешно транскрибировано через Whisper\n")
+                    f.write(f"Модель: medium\n")
+                    f.write(f"Язык: {result.get('language', 'ru')}\n\n")
                     f.write("## Содержание:\n")
-                    f.write("Не удалось создать транскрипцию из-за технической ошибки\n")
+                    f.write(transcript_text)
+                
+                self.logger.info(f"✅ Транскрипция успешно создана: {len(transcript_text)} символов")
+                return True
+                
+            except ImportError:
+                self.logger.error("❌ Модуль whisper не установлен")
+                # Fallback: создаем базовую транскрипцию
+                with open(transcript_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# Транскрипция файла: {os.path.basename(file_path)}\n\n")
+                    f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                    f.write(f"Статус: Ошибка - модуль whisper не установлен\n\n")
+                    f.write("## Содержание:\n")
+                    f.write("Установите модуль: pip install openai-whisper\n")
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка транскрипции через Whisper: {e}")
+                # Fallback: создаем базовую транскрипцию
+                with open(transcript_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# Транскрипция файла: {os.path.basename(file_path)}\n\n")
+                    f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                    f.write(f"Статус: Ошибка Whisper - {str(e)}\n\n")
+                    f.write("## Содержание:\n")
+                    f.write("Не удалось создать транскрипцию через Whisper\n")
+                    f.write(f"Файл: {os.path.basename(file_path)}\n")
+                    f.write(f"Размер: {os.path.getsize(file_path)} байт\n")
+                    f.write(f"Тип: Аудио файл MP3\n")
             
             self.logger.info(f"✅ Создана транскрипция: {transcript_file}")
             return True

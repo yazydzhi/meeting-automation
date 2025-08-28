@@ -202,23 +202,79 @@ class SummaryHandler(ProcessHandler):
                         f.write("## Содержание:\n")
                         f.write("Для получения детального анализа настройте OpenAI API в .env файле\n")
                 else:
-                    # TODO: Интегрировать с OpenAI API для реальной генерации
-                    self.logger.info("🔧 OpenAI API настроен, но интеграция пока не реализована")
+                    # Реальная интеграция с OpenAI API
+                    self.logger.info("🔧 OpenAI API настроен, запускаю генерацию саммари...")
+                    
+                    # Читаем файл транскрипции
+                    transcript_content = ""
+                    try:
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            transcript_content = f.read()
+                    except Exception as e:
+                        self.logger.error(f"❌ Ошибка чтения файла транскрипции: {e}")
+                        transcript_content = "Содержание недоступно"
+                    
+                    # Создаем промпт для OpenAI
+                    prompt = f"""Проанализируй следующую транскрипцию встречи и создай краткое саммари:
+
+Транскрипция:
+{transcript_content}
+
+Создай структурированное саммари на русском языке, включающее:
+1. Основные темы обсуждения
+2. Ключевые решения
+3. Действия и задачи
+4. Важные моменты
+
+Саммари:"""
+                    
+                    # Вызываем OpenAI API
+                    import openai
+                    client = openai.OpenAI(api_key=openai_config['api_key'])
+                    
+                    response = client.chat.completions.create(
+                        model=openai_config.get('model', 'gpt-4o-mini'),
+                        messages=[
+                            {"role": "system", "content": "Ты - помощник по анализу встреч. Создавай краткие, структурированные саммари на русском языке."},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=openai_config.get('temperature', 0.3),
+                        max_tokens=1000
+                    )
+                    
+                    # Получаем результат
+                    summary_text = response.choices[0].message.content
+                    
+                    # Сохраняем саммари
                     with open(summary_file, 'w', encoding='utf-8') as f:
                         f.write(f"# Саммари транскрипции: {os.path.basename(file_path)}\n\n")
                         f.write(f"Дата создания: {self._get_current_timestamp()}\n")
-                        f.write(f"Статус: OpenAI API настроен, интеграция в разработке\n\n")
+                        f.write(f"Статус: Сгенерировано через OpenAI API\n")
+                        f.write(f"Модель: {openai_config.get('model', 'gpt-4o-mini')}\n\n")
                         f.write("## Содержание:\n")
-                        f.write("Детальный анализ будет доступен после завершения интеграции с OpenAI API\n")
-            except Exception as e:
-                self.logger.error(f"❌ Ошибка генерации саммари: {e}")
-                # Создаем базовое саммари в случае ошибки
+                        f.write(summary_text)
+                    
+                    self.logger.info(f"✅ Саммари успешно сгенерировано через OpenAI API: {len(summary_text)} символов")
+                    
+            except ImportError:
+                self.logger.error("❌ Модуль openai не установлен")
+                # Fallback: создаем базовое саммари
                 with open(summary_file, 'w', encoding='utf-8') as f:
                     f.write(f"# Саммари транскрипции: {os.path.basename(file_path)}\n\n")
                     f.write(f"Дата создания: {self._get_current_timestamp()}\n")
-                    f.write(f"Статус: Ошибка генерации - {str(e)}\n\n")
+                    f.write(f"Статус: Ошибка - модуль openai не установлен\n\n")
                     f.write("## Содержание:\n")
-                    f.write("Не удалось сгенерировать саммари из-за технической ошибки\n")
+                    f.write("Установите модуль: pip install openai\n")
+            except Exception as e:
+                self.logger.error(f"❌ Ошибка генерации саммари через OpenAI: {e}")
+                # Fallback: создаем базовое саммари
+                with open(summary_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# Саммари транскрипции: {os.path.basename(file_path)}\n\n")
+                    f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                    f.write(f"Статус: Ошибка OpenAI API - {str(e)}\n\n")
+                    f.write("## Содержание:\n")
+                    f.write("Не удалось сгенерировать саммари через OpenAI API\n")
+                    f.write(f"Ошибка: {str(e)}\n")
             
             # Создаем файл анализа
             with open(analysis_file, 'w', encoding='utf-8') as f:
@@ -296,43 +352,94 @@ class SummaryHandler(ProcessHandler):
                 result["errors"] += 1
                 return result
             
-            # TASK-3: Создаем комплексное саммари с использованием конфигурируемых промптов
-            try:
-                # Получаем промпт для комплексного анализа
-                complex_prompt = self.prompt_manager.get_prompt('complex_analysis')
-                complex_settings = self.prompt_manager.get_prompt_settings('complex_analysis')
-                
-                self.logger.info(f"🔧 Используется промпт для комплексного анализа с настройками: {complex_settings}")
-                
-                # Создаем комплексное саммари
-                with open(complex_summary_file, 'w', encoding='utf-8') as f:
-                    f.write(f"# Комплексное саммари папки: {folder_name}\n\n")
-                    f.write(f"Дата создания: {self._get_current_timestamp()}\n")
-                    f.write(f"Количество видео: {len(all_transcripts)}\n\n")
-                    
-                    f.write("## Обработанные файлы:\n")
-                    for transcript in all_transcripts:
-                        f.write(f"- {transcript['file']}\n")
-                    f.write("\n")
-                    
-                    f.write("## Общее резюме:\n")
-                    f.write("Комплексное саммари для всех видео в папке.\n")
-                    f.write("Каждое видео было обработано и включено в общий анализ.\n\n")
-                    
-                    f.write("## Детали по файлам:\n")
-                    for i, transcript in enumerate(all_transcripts, 1):
-                        f.write(f"### {i}. {transcript['file']}\n")
-                        f.write("Содержание: [Транскрипция включена в комплексный анализ]\n\n")
-                    
-                    # TASK-3: Добавляем информацию о настройках промпта
-                    f.write("## Настройки анализа:\n")
-                    f.write(f"- Модель: {complex_settings.get('model', 'Не указана')}\n")
-                    f.write(f"- Температура: {complex_settings.get('temperature', 'Не указана')}\n")
-                    f.write(f"- Максимум токенов: {complex_settings.get('max_tokens', 'Не указано')}\n")
-                    f.write(f"- Включение трендов: {complex_settings.get('include_trends', False)}\n")
-                    f.write(f"- Включение прогресса: {complex_settings.get('include_progress', False)}\n")
-                    f.write(f"- Включение повторяющихся проблем: {complex_settings.get('include_recurring', False)}\n")
-                    f.write(f"- Включение инсайтов: {complex_settings.get('include_insights', False)}\n")
+                            # TASK-3: Создаем комплексное саммари с использованием OpenAI API
+                try:
+                    # Проверяем OpenAI API
+                    openai_config = self.get_openai_config()
+                    if openai_config and openai_config.get('api_key'):
+                        self.logger.info("🔧 OpenAI API настроен, создаю комплексное саммари...")
+                        
+                        # Создаем промпт для комплексного анализа
+                        all_content = "\n\n".join([
+                            f"=== {t['file']} ===\n{t['content']}"
+                            for t in all_transcripts
+                        ])
+                        
+                        complex_prompt = f"""Проанализируй следующие транскрипции встреч и создай комплексное саммари:
+
+{all_content}
+
+Создай детальное комплексное саммари на русском языке, включающее:
+1. Общие темы и тенденции
+2. Ключевые решения и их взаимосвязи
+3. Действия и задачи по всем встречам
+4. Повторяющиеся проблемы и их решения
+5. Прогресс и достижения
+6. Инсайты и рекомендации
+
+Комплексное саммари:"""
+                        
+                        # Вызываем OpenAI API
+                        import openai
+                        client = openai.OpenAI(api_key=openai_config['api_key'])
+                        
+                        response = client.chat.completions.create(
+                            model=openai_config.get('model', 'gpt-4o-mini'),
+                            messages=[
+                                {"role": "system", "content": "Ты - эксперт по анализу встреч. Создавай детальные, структурированные комплексные саммари на русском языке."},
+                                {"role": "user", "content": complex_prompt}
+                            ],
+                            temperature=openai_config.get('temperature', 0.3),
+                            max_tokens=2000
+                        )
+                        
+                        # Получаем результат
+                        complex_summary_text = response.choices[0].message.content
+                        
+                        # Сохраняем комплексное саммари
+                        with open(complex_summary_file, 'w', encoding='utf-8') as f:
+                            f.write(f"# Комплексное саммари папки: {folder_name}\n\n")
+                            f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                            f.write(f"Количество видео: {len(all_transcripts)}\n")
+                            f.write(f"Модель: {openai_config.get('model', 'gpt-4o-mini')}\n\n")
+                            
+                            f.write("## Обработанные файлы:\n")
+                            for transcript in all_transcripts:
+                                f.write(f"- {transcript['file']}\n")
+                            f.write("\n")
+                            
+                            f.write("## Комплексное саммари:\n")
+                            f.write(complex_summary_text)
+                        
+                        self.logger.info(f"✅ Комплексное саммари создано через OpenAI API: {len(complex_summary_text)} символов")
+                        
+                    else:
+                        self.logger.warning("⚠️ OpenAI API не настроен, создаю базовое комплексное саммари")
+                        
+                        # Создаем базовое комплексное саммари
+                        with open(complex_summary_file, 'w', encoding='utf-8') as f:
+                            f.write(f"# Комплексное саммари папки: {folder_name}\n\n")
+                            f.write(f"Дата создания: {self._get_current_timestamp()}\n")
+                            f.write(f"Количество видео: {len(all_transcripts)}\n\n")
+                            
+                            f.write("## Обработанные файлы:\n")
+                            for transcript in all_transcripts:
+                                f.write(f"- {transcript['file']}\n")
+                            f.write("\n")
+                            
+                            f.write("## Общее резюме:\n")
+                            f.write("Комплексное саммари для всех видео в папке.\n")
+                            f.write("Каждое видео было обработано и включено в общий анализ.\n\n")
+                            
+                            f.write("## Детали по файлам:\n")
+                            for i, transcript in enumerate(all_transcripts, 1):
+                                f.write(f"### {i}. {transcript['file']}\n")
+                                f.write("Содержание: [Транскрипция включена в комплексный анализ]\n\n")
+                            
+                            f.write("## Настройки анализа:\n")
+                            f.write("- OpenAI API не настроен\n")
+                            f.write("- Используется базовый анализ\n")
+                            f.write("- Для детального анализа настройте OpenAI API в .env файле\n")
                 
                 # Создаем комплексный анализ в JSON
                 complex_analysis = {
