@@ -38,6 +38,8 @@ except ImportError as e:
 # Импортируем новые модульные обработчики
 try:
     from handlers import (
+        CalendarIntegrationHandler,
+        
         AccountHandler,
         TranscriptionHandler,
         SummaryHandler,
@@ -176,15 +178,17 @@ class MeetingAutomationService:
         """Инициализация обработчиков для различных задач."""
         try:
             # Создаем экземпляры новых модульных обработчиков
-            self.account_handler = AccountHandler(self.config_manager, None, self.logger)
+            self.account_handler = AccountHandler(self.config_manager, None, self.notion_handler, self.logger)
             self.transcription_handler_new = TranscriptionHandler(self.config_manager, None, self.logger)
             self.summary_handler = SummaryHandler(self.config_manager, None, self.logger)
             # Передаем self (ServiceManager) в MediaHandler для доступа к кэшу
             self.media_handler = MediaHandler(self.config_manager, None, self.logger, service_manager=self)
             self.notion_handler = NotionHandler(self.config_manager, None, self.logger)
+            self.calendar_integration_handler = CalendarIntegrationHandler(self.config_manager, self.notion_handler, self.logger)
             self.metrics_handler = MetricsHandler(self.config_manager, self.logger)
             self.smart_report_generator = SmartReportGenerator(self.logger)
             self.logger.info("✅ SmartReportGenerator инициализирован")
+            self.logger.info("✅ CalendarIntegrationHandler инициализирован")
             
             self.logger.info("✅ Все модульные обработчики инициализированы")
                 
@@ -1180,7 +1184,7 @@ class MeetingAutomationService:
             # Обновляем кэш перед запуском цикла
             self._load_cache()
             
-            # Этап 1: Календарь → создание папки, записи в Notion
+            # Этап 1: Календарь → создание папок встреч и страниц Notion
             self.logger.info("📅 ЭТАП 1: Обработка календаря и создание папок встреч...")
             personal_stats = {"status": "skipped", "output": ""}
             work_stats = {"status": "skipped", "output": ""}
