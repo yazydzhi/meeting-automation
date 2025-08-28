@@ -1253,6 +1253,14 @@ class MeetingAutomationService:
             self.logger.info(f"⏱️ Время синхронизации с Notion: {notion_duration:.2f} секунд")
             self.logger.info(f"📊 Результат синхронизации с Notion: {notion_stats}")
             
+            # Этап 5.5: Обновление страниц Notion результатами обработки
+            self.logger.info("📝 ЭТАП 5.5: Обновление страниц Notion результатами обработки...")
+            notion_update_start = time.time()
+            notion_update_stats = self._update_notion_with_results()
+            notion_update_duration = time.time() - notion_update_start
+            self.logger.info(f"⏱️ Время обновления страниц Notion: {notion_update_duration:.2f} секунд")
+            self.logger.info(f"📊 Результат обновления страниц Notion: {notion_update_stats}")
+            
             # Создаем текущее состояние цикла
             self.current_cycle_state = self._create_cycle_state(
                 personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats
@@ -1401,7 +1409,7 @@ class MeetingAutomationService:
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
             return {}
     
-    def _create_cycle_state(self, personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats):
+    def _create_cycle_state(self, personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats, notion_update_stats):
         """Создание состояния текущего цикла обработки."""
         try:
             # Вычисляем общее время выполнения
@@ -1483,7 +1491,8 @@ class MeetingAutomationService:
                     media_stats.get("processed", 0) + 
                     transcription_stats.get("processed", 0) + 
                     notion_stats.get("processed", 0) + 
-                    summary_stats.get("processed", 0)
+                    summary_stats.get("processed", 0) + 
+                    notion_update_stats.get("processed", 0)
                 ),
                 "errors_count": (
                     personal_stats.get("errors", 0) + 
@@ -1491,7 +1500,8 @@ class MeetingAutomationService:
                     media_stats.get("errors", 0) + 
                     transcription_stats.get("errors", 0) + 
                     notion_stats.get("errors", 0) + 
-                    summary_stats.get("errors", 0)
+                    summary_stats.get("errors", 0) + 
+                    notion_update_stats.get("errors", 0)
                 ),
                 
                 "status": "completed"
@@ -1511,6 +1521,44 @@ class MeetingAutomationService:
             }
 
     def _save_state(self, state):
+        """Сохранение состояния цикла."""
+        try:
+            # TODO: Реализовать сохранение состояния
+            pass
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения состояния: {e}")
+    @retry(max_attempts=2, delay=3, backoff=2)
+    def _update_notion_with_results(self) -> Dict[str, Any]:
+        """Обновляет страницы Notion результатами обработки."""
+        try:
+            self.logger.info("📝 Запуск обновления страниц Notion результатами обработки...")
+            
+            # TODO: Реализовать обновление страниц Notion результатами обработки
+            # Пока возвращаем заглушку
+            update_stats = {
+                "status": "success",
+                "processed": 0,
+                "updated": 0,
+                "duration": 0,
+                "message": "Notion page updates not yet implemented",
+                "errors": 0
+            }
+            
+            self.logger.info("📝 Обновление страниц Notion (заглушка): завершено")
+            return update_stats
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления страниц Notion: {e}")
+            self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+            error_stats = {
+                "status": "error",
+                "processed": 0,
+                "updated": 0,
+                "duration": 0,
+                "message": str(e),
+                "errors": 1
+            }
+            return error_stats
         """Сохранение состояния сервиса."""
         try:
             # Создаем директорию для состояния, если её нет
