@@ -125,7 +125,7 @@ class CalendarIntegrationHandler(BaseHandler):
         try:
             if self.calendar_handler:
                 # Используем реальный CalendarHandler
-                events = self.calendar_handler.get_calendar_events(account_type, days_ahead=7)
+                events = self.calendar_handler.get_calendar_events(account_type)
                 self.logger.info(f"📅 Получено {len(events)} событий из календаря для {account_type}")
                 return events
             else:

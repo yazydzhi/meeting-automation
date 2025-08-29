@@ -44,18 +44,23 @@ class CalendarHandler(BaseHandler):
         self.google_service = None
         self.calendar_cache = {}
         
-    def get_calendar_events(self, account_type: str, days_ahead: int = 7) -> List[Dict[str, Any]]:
+    def get_calendar_events(self, account_type: str, days_ahead: int = None) -> List[Dict[str, Any]]:
         """
         Получает события календаря для указанного аккаунта.
         
         Args:
             account_type: Тип аккаунта ('personal' или 'work')
-            days_ahead: Количество дней вперед для поиска событий
+            days_ahead: Количество дней вперед для поиска событий (если None, используется из конфигурации)
             
         Returns:
             Список событий календаря
         """
         try:
+            # Если days_ahead не указан, берем из конфигурации
+            if days_ahead is None:
+                calendar_config = self.config_manager.get_calendar_config()
+                days_ahead = calendar_config['days_forward']
+            
             self.logger.info(f"📅 Получение событий календаря для {account_type} на {days_ahead} дней вперед")
             
             # Получаем конфигурацию аккаунта
@@ -97,9 +102,13 @@ class CalendarHandler(BaseHandler):
             if not self.google_service:
                 return []
             
-            # Получаем события
-            now = datetime.utcnow().isoformat() + 'Z'
-            end_time = (datetime.utcnow() + timedelta(days=days_ahead)).isoformat() + 'Z'
+            # Получаем события с учетом дней назад и вперед
+            calendar_config = self.config_manager.get_calendar_config()
+            days_back = calendar_config['days_back']
+            days_forward = calendar_config['days_forward']
+            
+            start_time = (datetime.utcnow() - timedelta(days=days_back)).isoformat() + 'Z'
+            end_time = (datetime.utcnow() + timedelta(days=days_forward)).isoformat() + 'Z'
             
             events_result = self.google_service.events().list(
                 calendarId='primary',
@@ -118,7 +127,7 @@ class CalendarHandler(BaseHandler):
                 if formatted_event:
                     formatted_events.append(formatted_event)
             
-            self.logger.info(f"✅ Получено {len(formatted_events)} событий из Google Calendar")
+            self.logger.info(f"✅ Получено {len(formatted_events)} событий из Google Calendar (с {days_back} дней назад по {days_forward} дней вперед)")
             return formatted_events
             
         except Exception as e:
@@ -149,18 +158,23 @@ class CalendarHandler(BaseHandler):
             # Парсим iCal
             cal = icalendar.Calendar.from_ical(response.content)
             
-            # Получаем события
+            # Получаем события с учетом дней назад и вперед
+            calendar_config = self.config_manager.get_calendar_config()
+            days_back = calendar_config['days_back']
+            days_forward = calendar_config['days_forward']
+            
             now = datetime.now()
-            end_time = now + timedelta(days=days_ahead)
+            start_time = now - timedelta(days=days_back)
+            end_time = now + timedelta(days=days_forward)
             
             events = []
             for component in cal.walk():
                 if component.name == "VEVENT":
-                    event = self._format_ical_event(component, now, end_time)
+                    event = self._format_ical_event(component, start_time, end_time)
                     if event:
                         events.append(event)
             
-            self.logger.info(f"✅ Получено {len(events)} событий из iCal календаря")
+            self.logger.info(f"✅ Получено {len(events)} событий из iCal календаря (с {days_back} дней назад по {days_forward} дней вперед)")
             return events
             
         except Exception as e:
@@ -403,7 +417,12 @@ class CalendarHandler(BaseHandler):
         Returns:
             Список тестовых событий
         """
-        self.logger.info(f"📅 Используются тестовые события для {account_type}")
+        # Получаем настройки календаря для логирования
+        calendar_config = self.config_manager.get_calendar_config()
+        days_back = calendar_config['days_back']
+        days_forward = calendar_config['days_forward']
+        
+        self.logger.info(f"📅 Используются тестовые события для {account_type} (с {days_back} дней назад по {days_forward} дней вперед)")
         
         if account_type == 'personal':
             return [

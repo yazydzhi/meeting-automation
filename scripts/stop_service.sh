@@ -27,4 +27,9 @@ else
     pkill -f service_manager
 fi
 
+# Останавливаем все процессы ffmpeg с задержкой
+echo "$(date): Останавливаю процессы ffmpeg через 5 секунд..." >> "$LOG_FILE"
+sleep 5
+pkill -f ffmpeg
+
 echo "$(date): Остановка сервиса завершена" >> "$LOG_FILE"

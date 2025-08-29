@@ -461,33 +461,46 @@ def create_simple_notion_page(
     }
     
     # Добавляем дату и время, если есть
-    if event_data.get("date") and event_data.get("start_time"):
-        # Формируем полную дату-время в формате ISO
-        date_str = event_data.get("date", "")
+    if event_data.get("start_time"):
         start_time = event_data.get("start_time", "")
         end_time = event_data.get("end_time", "")
         
-        # Создаем объект даты с временем
-        # Время уже конвертировано в локальную таймзону, не добавляем +03:00
-        date_obj = {
-            "start": f"{date_str}T{start_time}:00"  # Без таймзоны, Notion использует локальную
-        }
-        
-        # Добавляем время окончания, если есть
-        if end_time:
-            date_obj["end"] = f"{date_str}T{end_time}:00"
-        
-        notion_properties["Date"] = {"date": date_obj}
-        
-        if logger:
-            logger.info(f"🕐 Создаю событие в Notion: {date_str} {start_time}-{end_time}")
-    elif event_data.get("date"):
-        # Если есть только дата без времени
-        notion_properties["Date"] = {
-            "date": {
-                "start": event_data.get("date", "")
+        # Если время передано как строка ISO, используем его напрямую
+        if isinstance(start_time, str) and 'T' in start_time:
+            try:
+                # Парсим ISO строку и создаем объект даты
+                from datetime import datetime
+                start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00')) if end_time else None
+                
+                date_obj = {
+                    "start": start_dt.isoformat()
+                }
+                
+                if end_dt:
+                    date_obj["end"] = end_dt.isoformat()
+                
+                notion_properties["Date"] = {"date": date_obj}
+                
+                if logger:
+                    logger.info(f"🕐 Создаю событие в Notion: {start_dt.strftime('%Y-%m-%d %H:%M')} - {end_dt.strftime('%H:%M') if end_dt else 'без окончания'}")
+                    
+            except Exception as e:
+                if logger:
+                    logger.warning(f"⚠️ Ошибка парсинга времени: {e}")
+                # Если не удается распарсить, создаем поле Date без времени
+                notion_properties["Date"] = {
+                    "date": {
+                        "start": start_time
+                    }
+                }
+        else:
+            # Старая логика для обратной совместимости
+            notion_properties["Date"] = {
+                "date": {
+                    "start": start_time
+                }
             }
-        }
     
     # Добавляем участников, если есть
     if event_data.get("attendees"):
@@ -511,6 +524,10 @@ def create_simple_notion_page(
         notion_properties["Meeting Link"] = {
             "url": event_data.get("meeting_link", "")
         }
+    elif event_data.get("html_link"):
+        notion_properties["Meeting Link"] = {
+            "url": str(event_data.get("html_link", ""))
+        }
     
     # Добавляем тип календаря
     if event_data.get("account_type"):
@@ -521,26 +538,19 @@ def create_simple_notion_page(
         }
     
     # Добавляем полный путь к папке Drive, если есть
-    if event_data.get("folder_link"):
+    if event_data.get("folder_path"):
         notion_properties["Drive Folder"] = {
-            "rich_text": [
-                {
-                    "type": "text",
-                    "text": {
-                        "content": event_data.get("folder_link", "")
-                    }
-                }
-            ]
+            "url": str(event_data.get("folder_path", ""))
         }
     
     # Добавляем Event ID, если есть
-    if event_data.get("event_id"):
+    if event_data.get("id"):
         notion_properties["Event ID"] = {
             "rich_text": [
                 {
                     "type": "text",
                     "text": {
-                        "content": str(event_data.get("event_id", ""))
+                        "content": str(event_data.get("id", ""))
                     }
                 }
             ]
@@ -761,7 +771,7 @@ def create_meeting_page(event_data: Dict[str, Any], config_manager) -> Dict[str,
     try:
         # Получаем конфигурацию Notion
         notion_config = config_manager.get_notion_config()
-        notion_token = notion_config.get('notion_token')
+        notion_token = notion_config.get('token')
         database_id = notion_config.get('database_id')
         
         if not notion_token or not database_id:
@@ -825,7 +835,7 @@ def update_meeting_page(page_id: str, update_data: Dict[str, Any], config_manage
     try:
         # Получаем конфигурацию Notion
         notion_config = config_manager.get_notion_config()
-        notion_token = notion_config.get('notion_token')
+        notion_token = notion_config.get('token')
         
         if not notion_token:
             return {

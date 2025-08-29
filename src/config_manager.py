@@ -92,7 +92,9 @@ class ConfigManager:
             'log_level': os.getenv('LOG_LEVEL', 'INFO'),
             'service_check_interval': int(os.getenv('SERVICE_CHECK_INTERVAL', '300')),
             'service_media_interval': int(os.getenv('SERVICE_MEDIA_INTERVAL', '1800')),
-            'media_processing_timeout': int(os.getenv('MEDIA_PROCESSING_TIMEOUT', '1800'))
+            'media_processing_timeout': int(os.getenv('MEDIA_PROCESSING_TIMEOUT', '1800')),
+            'calendar_days_back': int(os.getenv('CALENDAR_DAYS_BACK', '3')),
+            'calendar_days_forward': int(os.getenv('CALENDAR_DAYS_FORWARD', '2'))
         }
         
         # Настройки медиа обработки
@@ -236,6 +238,13 @@ class ConfigManager:
     def get_general_config(self) -> Dict[str, Any]:
         """Получить общие настройки."""
         return self.config['general']
+    
+    def get_calendar_config(self) -> Dict[str, Any]:
+        """Получить настройки календаря."""
+        return {
+            'days_back': self.config['general']['calendar_days_back'],
+            'days_forward': self.config['general']['calendar_days_forward']
+        }
     
     def get_whisper_config(self) -> Dict[str, Any]:
         """Получить настройки Whisper."""
