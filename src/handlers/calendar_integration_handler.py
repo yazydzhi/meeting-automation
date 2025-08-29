@@ -41,6 +41,9 @@ class CalendarIntegrationHandler(BaseHandler):
         
         self.calendar_events_cache = {}
         self.folder_notion_mapping = {}
+        
+        # Загружаем кэш из файла
+        self._load_events_cache()
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process(self, account_type: str = "personal") -> Dict[str, Any]:
@@ -74,6 +77,7 @@ class CalendarIntegrationHandler(BaseHandler):
             created_folders = 0
             created_notion_pages = 0
             errors = 0
+            skipped_events = 0
             
             for event in calendar_events:
                 try:
@@ -84,6 +88,10 @@ class CalendarIntegrationHandler(BaseHandler):
                             created_folders += 1
                         if event_result.get('notion_page_created'):
                             created_notion_pages += 1
+                    elif event_result['status'] == 'skipped':
+                        # Событие уже обработано - это нормально, не ошибка
+                        skipped_events += 1
+                        self.logger.info(f"⏭️ Событие {event.get('title', 'Unknown')} пропущено: {event_result.get('message', 'Already processed')}")
                     else:
                         errors += 1
                         self.logger.warning(f"⚠️ Ошибка обработки события {event.get('title', 'Unknown')}: {event_result.get('message', 'Unknown error')}")
@@ -98,11 +106,13 @@ class CalendarIntegrationHandler(BaseHandler):
                 "folders_created": created_folders,
                 "notion_pages_created": created_notion_pages,
                 "errors": errors,
+                "skipped": skipped_events,
                 "details": [
                     f"Обработано событий: {processed_events}",
                     f"Создано папок: {created_folders}",
                     f"Создано страниц Notion: {created_notion_pages}",
-                    f"Ошибок: {errors}"
+                    f"Ошибок: {errors}",
+                    f"Пропущено событий: {skipped_events}"
                 ]
             }
             
@@ -371,20 +381,43 @@ class CalendarIntegrationHandler(BaseHandler):
     
     def _create_notion_page(self, event: Dict[str, Any], account_type: str) -> Dict[str, Any]:
         """
-        Создает страницу в Notion для события.
+        Создает или обновляет страницу в Notion для события.
+        Сначала проверяет существование страницы, чтобы избежать дублирования.
         
         Args:
             event: Событие календаря
             account_type: Тип аккаунта
             
         Returns:
-            Результат создания страницы Notion
+            Результат создания/обновления страницы Notion
         """
         try:
             if not self.notion_handler:
                 return {"success": False, "message": "Notion handler not available"}
             
-            # Создаем страницу через NotionHandler
+            # Сначала проверяем, существует ли уже страница для этой встречи
+            existing_page_id = self.notion_handler.find_existing_meeting_page(event, account_type)
+            
+            if existing_page_id:
+                # Страница уже существует - обновляем её свойства
+                self.logger.info(f"🔄 Страница для встречи '{event.get('title', 'Unknown')}' уже существует, обновляю свойства")
+                
+                update_result = self.notion_handler.update_existing_meeting_page(existing_page_id, event, account_type)
+                
+                if update_result.get('success'):
+                    return {
+                        "success": True,
+                        "page_id": existing_page_id,
+                        "message": "Existing Notion page updated successfully",
+                        "updated": True
+                    }
+                else:
+                    self.logger.warning(f"⚠️ Не удалось обновить существующую страницу: {update_result.get('message')}")
+                    # Продолжаем с созданием новой страницы
+            
+            # Создаем новую страницу
+            self.logger.info(f"📄 Создаю новую страницу в Notion для встречи '{event.get('title', 'Unknown')}'")
+            
             page_data = self.notion_handler._prepare_page_data(event, "", account_type)
             notion_page = self.notion_handler._create_notion_page(page_data)
             
@@ -393,14 +426,15 @@ class CalendarIntegrationHandler(BaseHandler):
                 return {
                     "success": True,
                     "page_id": notion_page.get('page_id'),
-                    "message": "Notion page created successfully"
+                    "message": "Notion page created successfully",
+                    "updated": False
                 }
             else:
                 self.logger.error(f"❌ Не удалось создать страницу Notion для {event.get('title', 'Unknown')}")
                 return {"success": False, "message": "Failed to create Notion page"}
             
         except Exception as e:
-            self.logger.error(f"❌ Ошибка создания страницы Notion: {e}")
+            self.logger.error(f"❌ Ошибка создания/обновления страницы Notion: {e}")
             return {"success": False, "message": str(e)}
     
     def _get_account_config(self, account_type: str) -> Optional[Dict[str, Any]]:
@@ -456,6 +490,8 @@ class CalendarIntegrationHandler(BaseHandler):
                 "processed_at": datetime.now().isoformat(),
                 "account_type": account_type
             }
+            # Сохраняем кэш в файл
+            self._save_events_cache()
         except Exception as e:
             self.logger.error(f"❌ Ошибка пометки события как обработанного: {e}")
     
@@ -503,3 +539,33 @@ class CalendarIntegrationHandler(BaseHandler):
                 "attendees_count": 5
             }
         ]
+    
+    def _get_cache_file_path(self) -> str:
+        """Возвращает путь к файлу кэша событий."""
+        cache_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'cache')
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, 'calendar_events_cache.json')
+    
+    def _load_events_cache(self):
+        """Загружает кэш событий из файла."""
+        try:
+            cache_file = self._get_cache_file_path()
+            if os.path.exists(cache_file):
+                with open(cache_file, 'r', encoding='utf-8') as f:
+                    self.calendar_events_cache = json.load(f)
+                    self.logger.info(f"📋 Загружен кэш событий: {len(self.calendar_events_cache)} записей")
+            else:
+                self.logger.info("📋 Файл кэша событий не найден, создаем новый")
+        except Exception as e:
+            self.logger.warning(f"⚠️ Ошибка загрузки кэша событий: {e}, создаем новый")
+            self.calendar_events_cache = {}
+    
+    def _save_events_cache(self):
+        """Сохраняет кэш событий в файл."""
+        try:
+            cache_file = self._get_cache_file_path()
+            with open(cache_file, 'w', encoding='utf-8') as f:
+                json.dump(self.calendar_events_cache, f, ensure_ascii=False, indent=2)
+            self.logger.debug(f"📋 Кэш событий сохранен: {len(self.calendar_events_cache)} записей")
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка сохранения кэша событий: {e}")

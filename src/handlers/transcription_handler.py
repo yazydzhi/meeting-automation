@@ -149,7 +149,7 @@ class TranscriptionHandler(ProcessHandler):
                 
                 # Выполняем транскрипцию
                 self.logger.info(f"🔧 Загружена модель Whisper: medium")
-                result = model.transcribe(file_path, language="ru")
+                result = model.transcribe(file_path, language="ru",fp16=False)
                 
                 # Получаем текст транскрипции
                 transcript_text = result["text"]

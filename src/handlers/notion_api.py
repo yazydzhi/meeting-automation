@@ -287,3 +287,163 @@ class NotionAPI:
         except Exception as e:
             self.logger.error(f"❌ Ошибка соединения с Notion: {e}")
             return False
+    
+    def search_pages(self, database_id: str, filter_config: Dict[str, Any] = None, max_results: int = 10) -> Optional[Dict[str, Any]]:
+        """
+        Ищет страницы в базе данных Notion по фильтрам.
+        
+        Args:
+            database_id: ID базы данных
+            filter_config: Конфигурация фильтров
+            max_results: Максимальное количество результатов
+            
+        Returns:
+            Результаты поиска или None
+        """
+        try:
+            if not self.headers:
+                self.logger.error("❌ Заголовки API не настроены")
+                return None
+            
+            # Подготавливаем данные для запроса к базе данных
+            query_data = {
+                "page_size": max_results
+            }
+            
+            # Добавляем сортировку, если есть поле Date
+            try:
+                query_data["sorts"] = [
+                    {
+                        "property": "Date",
+                        "direction": "descending"
+                    }
+                ]
+            except:
+                # Если поле Date недоступно, убираем сортировку
+                pass
+            
+            # Добавляем фильтры, если указаны
+            if filter_config:
+                query_data["filter"] = filter_config
+            
+            # Выполняем запрос к базе данных
+            # Правильный endpoint для запроса к базе данных
+            response = requests.post(
+                f"{self.base_url}/databases/{database_id}/query",
+                headers=self.headers,
+                json=query_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                results_count = len(result.get('results', []))
+                self.logger.info(f"✅ Найдено {results_count} страниц в базе данных")
+                return result
+            else:
+                self.logger.error(f"❌ Ошибка поиска страниц: {response.status_code} - {response.text}")
+                # Попробуем альтернативный способ поиска
+                return self._fallback_search(database_id, filter_config, max_results)
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка поиска страниц: {e}")
+            return None
+    
+    def _fallback_search(self, database_id: str, filter_config: Dict[str, Any] = None, max_results: int = 10) -> Optional[Dict[str, Any]]:
+        """
+        Альтернативный способ поиска страниц через общий поиск.
+        
+        Args:
+            database_id: ID базы данных
+            filter_config: Конфигурация фильтров
+            max_results: Максимальное количество результатов
+            
+        Returns:
+            Результаты поиска или None
+        """
+        try:
+            self.logger.info("🔄 Использую альтернативный способ поиска...")
+            
+            # Используем общий поиск по базе данных
+            search_data = {
+                "query": "",
+                "filter": {
+                    "value": "page",
+                    "property": "object"
+                },
+                "page_size": max_results
+            }
+            
+            # Добавляем фильтр по базе данных
+            search_data["filter"] = {
+                "and": [
+                    {
+                        "value": "page",
+                        "property": "object"
+                    },
+                    {
+                        "value": database_id,
+                        "property": "database_id"
+                    }
+                ]
+            }
+            
+            response = requests.post(
+                f"{self.base_url}/search",
+                headers=self.headers,
+                json=search_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                results_count = len(result.get('results', []))
+                self.logger.info(f"✅ Альтернативный поиск: найдено {results_count} страниц")
+                return result
+            else:
+                self.logger.error(f"❌ Ошибка альтернативного поиска: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка альтернативного поиска: {e}")
+            return None
+    
+    def update_page_properties(self, page_id: str, properties: Dict[str, Any]) -> bool:
+        """
+        Обновляет свойства страницы в Notion.
+        
+        Args:
+            page_id: ID страницы
+            properties: Новые свойства
+            
+        Returns:
+            True если обновление успешно, False иначе
+        """
+        try:
+            if not self.headers:
+                self.logger.error("❌ Заголовки API не настроены")
+                return False
+            
+            # Подготавливаем данные для обновления
+            update_data = {
+                "properties": properties
+            }
+            
+            # Обновляем страницу
+            response = requests.patch(
+                f"{self.base_url}/pages/{page_id}",
+                headers=self.headers,
+                json=update_data,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                self.logger.info(f"✅ Свойства страницы {page_id} обновлены")
+                return True
+            else:
+                self.logger.error(f"❌ Ошибка обновления свойств: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления свойств страницы {page_id}: {e}")
+            return False

@@ -328,8 +328,15 @@ class CalendarHandler(BaseHandler):
             start_time_str = start_dt_value.isoformat()
             end_time_str = end_dt_value.isoformat()
             
+            # Создаем стабильный ID на основе названия и даты (без времени)
+            date_key = start_dt_value.strftime('%Y-%m-%d')
+            # Используем более стабильный хеш на основе названия
+            import hashlib
+            title_hash = hashlib.md5(title.encode('utf-8')).hexdigest()[:8]
+            stable_id = f"ical_{date_key}_{title_hash}"
+            
             formatted_event = {
-                'id': f"ical_{hash(start_time_str + title)}",
+                'id': stable_id,
                 'title': title,
                 'start': start_time_str,
                 'end': end_time_str,

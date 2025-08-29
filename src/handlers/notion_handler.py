@@ -4,7 +4,7 @@
 Специализированный обработчик для синхронизации с Notion
 """
 
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from .base_handler import BaseHandler, retry
 from .notion_api import NotionAPI
 import os
@@ -408,6 +408,13 @@ class NotionHandler(BaseHandler):
             
             if start_dt and end_dt:
                 try:
+                    # Если время передано как строка, парсим его
+                    if isinstance(start_dt, str):
+                        from datetime import datetime
+                        start_dt = datetime.fromisoformat(start_dt.replace('Z', '+00:00'))
+                    if isinstance(end_dt, str):
+                        end_dt = datetime.fromisoformat(end_dt.replace('Z', '+00:00'))
+                    
                     # Убеждаемся, что datetime объекты имеют таймзону
                     if not start_dt.tzinfo:
                         start_dt = timezone.localize(start_dt)
@@ -418,7 +425,7 @@ class NotionHandler(BaseHandler):
                     start_dt = start_dt.astimezone(timezone)
                     end_dt = end_dt.astimezone(timezone)
                     
-                    properties['Date & Time'] = {
+                    properties['Date'] = {
                         "date": {
                             "start": start_dt.isoformat(),
                             "end": end_dt.isoformat()
@@ -477,6 +484,28 @@ class NotionHandler(BaseHandler):
                 properties['Meeting Link'] = {
                     "url": str(event_data['meeting_link'])
                 }
+            elif event_data.get('html_link'):
+                properties['Meeting Link'] = {
+                    "url": str(event_data['html_link'])
+                }
+            
+            # Drive Folder (полный путь к папке)
+            if event_data.get('folder_path'):
+                properties['Drive Folder'] = {
+                    "url": str(event_data['folder_path'])
+                }
+            
+            # Event ID (важно для предотвращения дублирования)
+            if event_data.get('id'):
+                properties['Event ID'] = {
+                    "rich_text": [
+                        {
+                            "text": {
+                                "content": str(event_data['id'])
+                            }
+                        }
+                    ]
+                }
             
             # Ссылка на папку
             if event_data.get('folder_link'):
@@ -495,6 +524,14 @@ class NotionHandler(BaseHandler):
             # Тип аккаунта
             if event_data.get('account_type'):
                 properties['Account Type'] = {
+                    "select": {
+                        "name": str(event_data['account_type'])
+                    }
+                }
+            
+            # Calendar (тип календаря)
+            if event_data.get('account_type'):
+                properties['Calendar'] = {
                     "select": {
                         "name": str(event_data['account_type'])
                     }
@@ -615,6 +652,139 @@ class NotionHandler(BaseHandler):
         except Exception as e:
             self.logger.error(f"❌ Ошибка обновления страницы Notion: {e}")
             return {"success": False, "message": str(e)}
+
+    def find_existing_meeting_page(self, event_data: Dict[str, Any], account_type: str) -> Optional[str]:
+        """
+        Ищет существующую страницу встречи в Notion.
+        
+        Args:
+            event_data: Данные события
+            account_type: Тип аккаунта
+            
+        Returns:
+            ID существующей страницы или None
+        """
+        try:
+            # Получаем конфигурацию Notion
+            notion_config = self.config_manager.get_notion_config()
+            notion_token = notion_config.get('token')
+            database_id = notion_config.get('database_id')
+            
+            if not notion_token or not database_id:
+                self.logger.warning("⚠️ Не настроена конфигурация Notion для поиска")
+                return None
+            
+            # Создаем фильтры для поиска (в порядке приоритета)
+            filters = []
+            
+            # 1. По Event ID (самый надежный способ, если ID есть в календаре)
+            if event_data.get('id') and event_data.get('id') != 'unknown':
+                filters.append({
+                    "property": "Event ID",
+                    "rich_text": {
+                        "equals": str(event_data['id'])
+                    }
+                })
+            
+            # 2. По названию и типу календаря (fallback)
+            if event_data.get('title'):
+                filters.append({
+                    "and": [
+                        {
+                            "property": "Name",
+                            "title": {
+                                "equals": event_data['title']
+                            }
+                        },
+                        {
+                            "property": "Calendar",
+                            "select": {
+                                "equals": account_type
+                            }
+                        }
+                    ]
+                })
+            
+            # Выполняем поиск
+            for filter_config in filters:
+                try:
+                    from src.handlers.notion_api import NotionAPI
+                    api = NotionAPI(self.config_manager)
+                    
+                    # Ищем страницы с текущим фильтром
+                    search_result = api.search_pages(
+                        database_id=database_id,
+                        filter_config=filter_config,
+                        max_results=5
+                    )
+                    
+                    if search_result and search_result.get('results'):
+                        page_id = search_result['results'][0]['id']
+                        self.logger.info(f"✅ Найдена существующая страница: {page_id}")
+                        return page_id
+                        
+                except Exception as e:
+                    self.logger.warning(f"⚠️ Ошибка поиска с фильтром: {e}")
+                    continue
+            
+            self.logger.info(f"🔍 Существующая страница для встречи '{event_data.get('title', 'Unknown')}' не найдена")
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка поиска существующей страницы: {e}")
+            return None
+    
+    def update_existing_meeting_page(self, page_id: str, event_data: Dict[str, Any], account_type: str) -> Dict[str, Any]:
+        """
+        Обновляет существующую страницу встречи в Notion.
+        
+        Args:
+            page_id: ID существующей страницы
+            event_data: Новые данные события
+            account_type: Тип аккаунта
+            
+        Returns:
+            Результат обновления
+        """
+        try:
+            # Получаем конфигурацию Notion
+            notion_config = self.config_manager.get_notion_config()
+            notion_token = notion_config.get('token')
+            
+            if not notion_token:
+                return {
+                    "success": False,
+                    "message": "Не настроена конфигурация Notion"
+                }
+            
+            # Создаем только свойства для обновления (без содержимого)
+            properties = self._create_meeting_properties(event_data, account_type)
+            
+            # Обновляем только свойства страницы
+            from src.handlers.notion_api import NotionAPI
+            api = NotionAPI(self.config_manager)
+            
+            update_result = api.update_page_properties(page_id, properties)
+            
+            if update_result:
+                self.logger.info(f"✅ Свойства страницы {page_id} успешно обновлены")
+                return {
+                    "success": True,
+                    "page_id": page_id,
+                    "message": "Свойства страницы встречи обновлены"
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Не удалось обновить свойства страницы"
+                }
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления страницы {page_id}: {e}")
+            return {
+                "success": False,
+                "message": f"Ошибка обновления: {e}"
+            }
 
     def _prepare_page_data(self, event, folder_path, account_type) -> Dict[str, Any]:
         """
