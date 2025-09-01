@@ -97,6 +97,12 @@ class ConfigManager:
             'calendar_days_forward': int(os.getenv('CALENDAR_DAYS_FORWARD', '2'))
         }
         
+        # Настройки саммари
+        self.config['summary'] = {
+            'enable_complex_summary': os.getenv('ENABLE_COMPLEX_SUMMARY', 'false').lower() == 'true',
+            'enable_general_summary': os.getenv('ENABLE_GENERAL_SUMMARY', 'false').lower() == 'true'
+        }
+        
         # Настройки медиа обработки
         self.config['media'] = {
             'output_format': os.getenv('MEDIA_OUTPUT_FORMAT', 'mp3'),
@@ -245,6 +251,13 @@ class ConfigManager:
             'days_back': self.config['general']['calendar_days_back'],
             'days_forward': self.config['general']['calendar_days_forward']
         }
+    
+    def get_summary_config(self) -> Dict[str, Any]:
+        """Получить настройки саммари."""
+        return self.config.get('summary', {
+            'enable_complex_summary': False,
+            'enable_general_summary': False
+        })
     
     def get_whisper_config(self) -> Dict[str, Any]:
         """Получить настройки Whisper."""

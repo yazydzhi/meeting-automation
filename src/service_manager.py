@@ -48,6 +48,7 @@ try:
         MetricsHandler
     )
     from src.handlers.smart_report_generator import SmartReportGenerator
+    from src.handlers.state_manager import StateManager
     NEW_HANDLERS_AVAILABLE = True
     print("✅ Новые модульные обработчики загружены")
 except ImportError as e:
@@ -198,7 +199,9 @@ class MeetingAutomationService:
             self.logger.info(f"📅 CalendarIntegrationHandler создан с calendar_handler: {type(self.calendar_integration_handler.calendar_handler).__name__}")
             self.metrics_handler = MetricsHandler(self.config_manager, self.logger)
             self.smart_report_generator = SmartReportGenerator(self.logger)
+            self.state_manager = StateManager(logger=self.logger)
             self.logger.info("✅ SmartReportGenerator инициализирован")
+            self.logger.info("✅ StateManager инициализирован")
             self.logger.info("✅ CalendarHandler инициализирован")
             self.logger.info("✅ CalendarIntegrationHandler инициализирован")
             
@@ -603,11 +606,20 @@ class MeetingAutomationService:
             
             self.logger.info(f"🔍 Сравнение метрик: current={current_metrics}, previous={previous_metrics}")
             
-            # Проверяем изменения в метриках
+            # Проверяем изменения в метриках (только увеличение или новые ошибки)
             for key in current_metrics:
                 if current_metrics[key] != previous_metrics[key]:
-                    self.logger.info(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
-                    return True
+                    # Считаем изменением только увеличение метрик или появление новых ошибок
+                    if current_metrics[key] > previous_metrics[key]:
+                        self.logger.info(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                        return True
+                    elif key == 'errors_count' and current_metrics[key] > 0:
+                        # Ошибки всегда считаем изменением
+                        self.logger.info(f"🔍 Обнаружены ошибки в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                        return True
+                    else:
+                        # Снижение метрик не считаем изменением (кроме ошибок)
+                        self.logger.debug(f"🔍 Снижение метрики {key}: {previous_metrics[key]} -> {current_metrics[key]} (не считается изменением)")
             
             # Проверяем изменения в статусах
             current_statuses = {
@@ -630,16 +642,25 @@ class MeetingAutomationService:
             
             for key in current_statuses:
                 if current_statuses[key] != previous_statuses[key]:
-                    self.logger.info(f"🔍 Обнаружены изменения в статусе {key}: {previous_statuses[key]} -> {current_statuses[key]}")
-                    return True
+                    # Считаем изменением только переход к статусу 'error' или от 'error' к другому статусу
+                    if (current_statuses[key] == 'error' or 
+                        (previous_statuses[key] == 'error' and current_statuses[key] != 'error')):
+                        self.logger.info(f"🔍 Обнаружены изменения в статусе {key}: {previous_statuses[key]} -> {current_statuses[key]}")
+                        return True
+                    else:
+                        # Остальные изменения статусов не считаем значимыми
+                        self.logger.debug(f"🔍 Изменение статуса {key}: {previous_statuses[key]} -> {current_statuses[key]} (не считается изменением)")
             
-            # Проверяем изменения во времени последнего обновления
+            # Проверяем изменения во времени последнего обновления (только если время не пустое)
             current_time = current_state.get('last_update', '')
             previous_time = previous_state.get('last_update', '')
             
-            if current_time != previous_time:
+            if current_time != previous_time and current_time and previous_time:
                 self.logger.info(f"🔍 Обнаружены изменения во времени: {previous_time} -> {current_time}")
                 return True
+            elif current_time != previous_time:
+                # Если одно из времен пустое, не считаем это изменением
+                self.logger.debug(f"🔍 Изменение времени (пустое): {previous_time} -> {current_time} (не считается изменением)")
             
             # Проверяем, есть ли новые события (даже если они не были обработаны)
             personal_new = current_state.get('personal_events', {}).get('new', 0)
@@ -832,14 +853,14 @@ class MeetingAutomationService:
             self.logger.info("📱 Проверка необходимости отправки уведомлений в Telegram...")
             
             # Проверяем, нужно ли отправлять уведомление
-            # В режиме тестирования всегда отправляем
             # 🔧 ИСПРАВЛЕНО: Логика проверки изменений
-            force_send = self.config_manager.get('TELEGRAM_ALWAYS_SEND', False)
+            import os
+            force_send = os.getenv('TELEGRAM_ALWAYS_SEND', 'false').lower() == 'true'
             self.logger.info(f"📱 TELEGRAM_ALWAYS_SEND: {force_send}")
             
             if not force_send:
-                self.logger.info("📱 Проверяю наличие изменений...")
-                has_changes = self._has_changes(current_state, previous_state)
+                self.logger.info("📱 Проверяю наличие изменений через StateManager...")
+                has_changes = self.state_manager.has_changes(current_state)
                 self.logger.info(f"📱 Результат проверки изменений: {has_changes}")
                 
                 if not has_changes:
@@ -1249,13 +1270,19 @@ class MeetingAutomationService:
             self.logger.info(f"⏱️ Время транскрипции: {transcription_duration:.2f} секунд")
             self.logger.info(f"📊 Результат транскрипции: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
             
-            # Этап 4: Саммари и другая полезная информация
-            self.logger.info("📋 ЭТАП 4: Генерация саммари и анализ транскрипций...")
-            summary_start = time.time()
-            summary_stats, notion_update_stats = self.process_summaries()
-            summary_duration = time.time() - summary_start
-            self.logger.info(f"⏱️ Время генерации саммари: {summary_duration:.2f} секунд")
-            self.logger.info(f"📊 Результат генерации саммари: обработано {summary_stats, notion_update_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
+            # Этап 4: Саммари и другая полезная информация (если включено)
+            summary_config = self.config_manager.get_summary_config()
+            if summary_config.get('enable_general_summary', False):
+                self.logger.info("📋 ЭТАП 4: Генерация саммари и анализ транскрипций...")
+                summary_start = time.time()
+                summary_stats, notion_update_stats = self.process_summaries()
+                summary_duration = time.time() - summary_start
+                self.logger.info(f"⏱️ Время генерации саммари: {summary_duration:.2f} секунд")
+                self.logger.info(f"📊 Результат генерации саммари: обработано {summary_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
+            else:
+                self.logger.info("📋 ЭТАП 4: Генерация саммари отключена в настройках")
+                summary_stats = {"status": "skipped", "processed": 0, "errors": 0, "message": "General summary disabled"}
+                notion_update_stats = {"status": "skipped", "message": "Notion updates not implemented"}
             
             # Этап 5: Обновление Notion
             self.logger.info("📝 ЭТАП 5: Синхронизация с Notion...")
@@ -1278,7 +1305,12 @@ class MeetingAutomationService:
                 personal_stats, work_stats, media_stats, transcription_stats, notion_stats, summary_stats, notion_update_stats
             )
             
-            # Сохраняем текущее состояние
+            # Сохраняем текущее состояние в SQLite
+            cycle_id = getattr(self, 'cycle_count', 0) + 1
+            self.state_manager.save_system_state(self.current_cycle_state, cycle_id)
+            self.cycle_count = cycle_id
+            
+            # Сохраняем текущее состояние (старый метод для совместимости)
             self._save_state(self.current_cycle_state)
             
             # Этап 6: Отчет в Telegram и создание файлов статуса (параллельно)
@@ -1317,7 +1349,7 @@ class MeetingAutomationService:
             self.logger.info(f"   🏢 Рабочий аккаунт: {work_stats['status']}")
             self.logger.info(f"   🎬 Медиа: обработано {media_stats.get('processed', 0)}, найдено {media_stats.get('synced', 0)}")
             self.logger.info(f"   🎤 Транскрипция: обработано {transcription_stats.get('processed', 0)}, ошибок {transcription_stats.get('errors', 0)}")
-            self.logger.info(f"   📋 Саммари: обработано {summary_stats, notion_update_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
+            self.logger.info(f"   📋 Саммари: обработано {summary_stats.get('processed', 0)}, ошибок {summary_stats.get('errors', 0)}")
             self.logger.info(f"   📝 Notion: синхронизировано {notion_stats.get('synced', 0)}, ошибок {notion_stats.get('errors', 0)}")
             self.logger.info(f"   📱 Telegram: {telegram_stats.get('status', 'unknown')}")
             self.logger.info(f"⏱️ ОБЩЕЕ ВРЕМЯ ВЫПОЛНЕНИЯ ЦИКЛА: {total_duration:.2f} секунд")

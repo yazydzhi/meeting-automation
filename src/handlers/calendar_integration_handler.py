@@ -42,8 +42,16 @@ class CalendarIntegrationHandler(BaseHandler):
         self.calendar_events_cache = {}
         self.folder_notion_mapping = {}
         
-        # Загружаем кэш из файла
-        self._load_events_cache()
+        # Инициализируем StateManager для отслеживания обработанных событий
+        try:
+            from .state_manager import StateManager
+            self.state_manager = StateManager(logger=self.logger)
+            self.logger.info("✅ StateManager инициализирован в CalendarIntegrationHandler")
+        except ImportError:
+            self.state_manager = None
+            self.logger.warning("⚠️ StateManager недоступен, используем старый кэш")
+            # Загружаем кэш из файла
+            self._load_events_cache()
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process(self, account_type: str = "personal") -> Dict[str, Any]:
@@ -193,7 +201,10 @@ class CalendarIntegrationHandler(BaseHandler):
                 # Продолжаем работу, так как папка создана
             
             # Помечаем событие как обработанное
-            self._mark_event_processed(event_id, account_type)
+            event_title = event.get('title', 'Unknown Event')
+            event_start_time = event.get('start', '')
+            event_end_time = event.get('end', '')
+            self._mark_event_processed(event_id, account_type, event_title, event_start_time, event_end_time)
             
             return {
                 "status": "success",
@@ -470,28 +481,43 @@ class CalendarIntegrationHandler(BaseHandler):
             True если событие уже обработано, False иначе
         """
         try:
-            cache_key = f"{account_type}_{event_id}"
-            return cache_key in self.calendar_events_cache
+            # Используем StateManager если доступен
+            if self.state_manager:
+                return self.state_manager.is_event_processed(event_id, account_type)
+            else:
+                # Fallback на старый кэш
+                cache_key = f"{account_type}_{event_id}"
+                return cache_key in self.calendar_events_cache
         except Exception as e:
             self.logger.error(f"❌ Ошибка проверки статуса события: {e}")
             return False
     
-    def _mark_event_processed(self, event_id: str, account_type: str):
+    def _mark_event_processed(self, event_id: str, account_type: str, event_title: str = "", 
+                            event_start_time: str = "", event_end_time: str = ""):
         """
         Помечает событие как обработанное.
         
         Args:
             event_id: ID события
             account_type: Тип аккаунта
+            event_title: Название события
+            event_start_time: Время начала события
+            event_end_time: Время окончания события
         """
         try:
-            cache_key = f"{account_type}_{event_id}"
-            self.calendar_events_cache[cache_key] = {
-                "processed_at": datetime.now().isoformat(),
-                "account_type": account_type
-            }
-            # Сохраняем кэш в файл
-            self._save_events_cache()
+            # Используем StateManager если доступен
+            if self.state_manager:
+                self.state_manager.mark_event_processed(event_id, account_type, event_title, 
+                                                      event_start_time, event_end_time)
+            else:
+                # Fallback на старый кэш
+                cache_key = f"{account_type}_{event_id}"
+                self.calendar_events_cache[cache_key] = {
+                    "processed_at": datetime.now().isoformat(),
+                    "account_type": account_type
+                }
+                # Сохраняем кэш в файл
+                self._save_events_cache()
         except Exception as e:
             self.logger.error(f"❌ Ошибка пометки события как обработанного: {e}")
     

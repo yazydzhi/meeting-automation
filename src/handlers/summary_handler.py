@@ -67,17 +67,21 @@ class SummaryHandler(ProcessHandler):
                     self.logger.warning(f"⚠️ Папка рабочего аккаунта не найдена: {work_folder}")
             
             self.logger.info(f"✅ Обработка саммари завершена: {total_processed} обработано, {total_errors} ошибок")
-            return {
+            summary_result = {
                 "status": "success",
                 "message": "Summary processing completed",
                 "results": results,
                 "total_processed": total_processed,
                 "total_errors": total_errors
             }
+            # Возвращаем два значения: summary_stats и notion_update_stats (пустой для совместимости)
+            return summary_result, {"status": "skipped", "message": "Notion updates not implemented"}
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка обработки саммари: {e}")
-            return {"status": "error", "message": str(e)}
+            error_result = {"status": "error", "message": str(e)}
+            # Возвращаем два значения: summary_stats и notion_update_stats (пустой для совместимости)
+            return error_result, {"status": "skipped", "message": "Notion updates not implemented"}
     
     def _process_folder_summaries(self, folder_path: str, account_type: str) -> Dict[str, Any]:
         """
@@ -136,12 +140,16 @@ class SummaryHandler(ProcessHandler):
                         "error": str(e)
                     })
             
-            # TASK-2: Если файлов несколько, создаем комплексное саммари
+            # TASK-2: Если файлов несколько, создаем комплексное саммари (если включено)
             if len(transcript_files) > 1:
-                self.logger.info(f"🔄 TASK-2: Обнаружено несколько видео в папке, создаю комплексное саммари")
-                complex_result = self._process_multiple_transcripts(transcript_files, account_type, folder_path)
-                if complex_result:
-                    result["complex_summary"] = complex_result
+                summary_config = self.config_manager.get_summary_config()
+                if summary_config.get('enable_complex_summary', False):
+                    self.logger.info(f"🔄 TASK-2: Обнаружено несколько видео в папке, создаю комплексное саммари")
+                    complex_result = self._process_multiple_transcripts(transcript_files, account_type, folder_path)
+                    if complex_result:
+                        result["complex_summary"] = complex_result
+                else:
+                    self.logger.info(f"🔄 TASK-2: Комплексное саммари отключено в настройках")
             
             return result
             

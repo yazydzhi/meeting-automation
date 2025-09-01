@@ -1,0 +1,14 @@
+#!/bin/bash
+# Удобный скрипт-обертка для db_viewer.py
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DB_VIEWER="$SCRIPT_DIR/db_viewer.py"
+
+# Проверяем, что скрипт существует
+if [ ! -f "$DB_VIEWER" ]; then
+    echo "❌ db_viewer.py не найден: $DB_VIEWER"
+    exit 1
+fi
+
+# Запускаем viewer с переданными аргументами
+python "$DB_VIEWER" "$@"

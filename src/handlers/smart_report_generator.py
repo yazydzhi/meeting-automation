@@ -84,12 +84,23 @@ class SmartReportGenerator:
             self.logger.info(f"🔍 SmartReportGenerator: current_metrics={current_metrics}")
             self.logger.info(f"🔍 SmartReportGenerator: previous_metrics={previous_metrics}")
             
-            # Проверяем изменения в метриках
+            # Проверяем изменения в метриках (только увеличение или новые ошибки)
             for key in current_metrics:
                 if current_metrics[key] != previous_metrics[key]:
-                    if self.logger:
-                        self.logger.info(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
-                    return True
+                    # Считаем изменением только увеличение метрик или появление новых ошибок
+                    if current_metrics[key] > previous_metrics[key]:
+                        if self.logger:
+                            self.logger.info(f"🔍 Обнаружены изменения в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                        return True
+                    elif key == 'errors_count' and current_metrics[key] > 0:
+                        # Ошибки всегда считаем изменением
+                        if self.logger:
+                            self.logger.info(f"🔍 Обнаружены ошибки в {key}: {previous_metrics[key]} -> {current_metrics[key]}")
+                        return True
+                    else:
+                        # Снижение метрик не считаем изменением (кроме ошибок)
+                        if self.logger:
+                            self.logger.debug(f"🔍 Снижение метрики {key}: {previous_metrics[key]} -> {current_metrics[key]} (не считается изменением)")
             
             # Убираем эту проверку - она всегда возвращала True при любой активности
             # Теперь отчет будет генерироваться только при реальных изменениях в метриках
