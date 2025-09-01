@@ -1578,10 +1578,11 @@ class MeetingAutomationService:
             self.logger.info("📝 Запуск обновления страниц Notion результатами обработки...")
             start_time = time.time()
             
-            # Получаем результаты обработки из кэша
-            processed_files = self.metrics_handler.get_processed_files()
-            transcribed_files = self.metrics_handler.get_transcribed_files()
-            summarized_files = self.metrics_handler.get_summarized_files()
+            # Получаем результаты обработки из текущего состояния
+            # Пока используем заглушки, так как конкретная реализация обновления Notion не реализована
+            processed_files = []  # TODO: Получить из кэша или состояния
+            transcribed_files = []  # TODO: Получить из кэша или состояния
+            summarized_files = []  # TODO: Получить из кэша или состояния
             
             update_stats = {
                 "status": "success",
