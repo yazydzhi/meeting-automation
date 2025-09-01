@@ -530,6 +530,170 @@ class DatabaseViewer:
             
         except Exception as e:
             print(f"❌ Ошибка создания детальной таблицы обработки: {e}")
+    
+    def clear_database(self, confirm: bool = False):
+        """Очищает всю базу данных."""
+        if not confirm:
+            print("⚠️  ВНИМАНИЕ: Эта операция удалит ВСЕ данные из базы!")
+            print("📋 Будут удалены:")
+            print("   • Все состояния системы")
+            print("   • Все обработанные события")
+            print("   • Все обработанные медиа файлы")
+            print("   • Все обработанные транскрипции")
+            print("   • Все синхронизации с Notion")
+            print()
+            response = input("❓ Вы уверены? Введите 'YES' для подтверждения: ").strip()
+            if response != 'YES':
+                print("❌ Операция отменена")
+                return False
+        
+        try:
+            cursor = self.conn.cursor()
+            
+            # Получаем статистику перед удалением
+            tables = ['system_state', 'processed_events', 'processed_media', 'processed_transcriptions', 'notion_sync']
+            stats = {}
+            for table in tables:
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                stats[table] = cursor.fetchone()[0]
+            
+            print("📊 Статистика перед очисткой:")
+            for table, count in stats.items():
+                print(f"   • {table}: {count} записей")
+            
+            # Удаляем все данные
+            for table in tables:
+                cursor.execute(f"DELETE FROM {table}")
+            
+            # Сбрасываем автоинкремент
+            cursor.execute("DELETE FROM sqlite_sequence")
+            
+            self.conn.commit()
+            
+            print("✅ База данных успешно очищена")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка очистки базы данных: {e}")
+            self.conn.rollback()
+            return False
+    
+    def delete_event(self, event_id: str, account_type: str = None, confirm: bool = False):
+        """Удаляет конкретное событие из базы данных."""
+        try:
+            cursor = self.conn.cursor()
+            
+            # Сначала найдем событие
+            if account_type:
+                cursor.execute("""
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    WHERE event_id = ? AND account_type = ?
+                """, (event_id, account_type))
+            else:
+                cursor.execute("""
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    WHERE event_id = ?
+                """, (event_id,))
+            
+            events = cursor.fetchall()
+            
+            if not events:
+                print(f"❌ Событие с ID '{event_id}' не найдено")
+                return False
+            
+            if len(events) > 1:
+                print(f"🔍 Найдено {len(events)} событий с ID '{event_id}':")
+                for i, event in enumerate(events, 1):
+                    print(f"   {i}. {event['account_type']} - {event['event_title']} ({event['event_start_time']})")
+                print()
+                choice = input("❓ Введите номер события для удаления (или 'all' для всех): ").strip()
+                
+                if choice.lower() == 'all':
+                    events_to_delete = events
+                else:
+                    try:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(events):
+                            events_to_delete = [events[idx]]
+                        else:
+                            print("❌ Неверный номер события")
+                            return False
+                    except ValueError:
+                        print("❌ Неверный ввод")
+                        return False
+            else:
+                events_to_delete = events
+            
+            # Показываем информацию о событиях для удаления
+            print("📋 События для удаления:")
+            for event in events_to_delete:
+                print(f"   • {event['event_id']} ({event['account_type']})")
+                print(f"     Название: {event['event_title']}")
+                print(f"     Время: {event['event_start_time']} - {event['event_end_time']}")
+                print(f"     Обработано: {event['processed_at']}")
+                print()
+            
+            if not confirm:
+                response = input("❓ Удалить эти события? Введите 'YES' для подтверждения: ").strip()
+                if response != 'YES':
+                    print("❌ Операция отменена")
+                    return False
+            
+            # Удаляем события
+            deleted_count = 0
+            for event in events_to_delete:
+                cursor.execute("""
+                    DELETE FROM processed_events 
+                    WHERE event_id = ? AND account_type = ?
+                """, (event['event_id'], event['account_type']))
+                deleted_count += cursor.rowcount
+            
+            self.conn.commit()
+            print(f"✅ Удалено {deleted_count} событий")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Ошибка удаления события: {e}")
+            self.conn.rollback()
+            return False
+    
+    def list_events_for_deletion(self, limit: int = 20):
+        """Показывает список событий для выбора удаления."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                FROM processed_events 
+                ORDER BY processed_at DESC 
+                LIMIT ?
+            """, (limit,))
+            
+            events = cursor.fetchall()
+            
+            if not events:
+                print("📭 Нет событий для удаления")
+                return
+            
+            print(f"📋 Список событий для удаления (последние {len(events)}):")
+            print("=" * 120)
+            print(f"{'№':<3} {'ID':<25} {'Аккаунт':<8} {'Название':<40} {'Время':<20} {'Обработано':<20}")
+            print("-" * 120)
+            
+            for i, event in enumerate(events, 1):
+                event_id = event['event_id'][:22] + "..." if len(event['event_id']) > 25 else event['event_id']
+                event_title = event['event_title'][:37] + "..." if len(event['event_title']) > 40 else event['event_title']
+                event_time = event['event_start_time'][:16] if event['event_start_time'] else "N/A"
+                processed_time = event['processed_at'][:16] if event['processed_at'] else "N/A"
+                
+                print(f"{i:<3} {event_id:<25} {event['account_type']:<8} {event_title:<40} {event_time:<20} {processed_time:<20}")
+            
+            print("=" * 120)
+            print("💡 Используйте команду 'delete-event <номер>' для удаления конкретного события")
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения списка событий: {e}")
 
 
 def main():
@@ -584,6 +748,23 @@ def main():
     detail_parser = subparsers.add_parser('detail', help='Показать детальную таблицу обработки с временными метками')
     detail_parser.add_argument('--limit', type=int, default=10, help='Количество записей')
     
+    # Команда для очистки базы данных
+    clear_parser = subparsers.add_parser('clear', help='Очистить всю базу данных')
+    clear_parser.add_argument('--force', action='store_true', help='Принудительная очистка без подтверждения')
+    
+    # Команда для удаления события
+    delete_parser = subparsers.add_parser('delete-event', help='Удалить конкретное событие')
+    delete_parser.add_argument('event_id', help='ID события для удаления')
+    delete_parser.add_argument('--account', choices=['personal', 'work'], help='Тип аккаунта (если не указан, удаляются все совпадения)')
+    delete_parser.add_argument('--force', action='store_true', help='Принудительное удаление без подтверждения')
+    
+    # Команда для списка событий для удаления
+    list_parser = subparsers.add_parser('list-events', help='Показать список событий для удаления')
+    list_parser.add_argument('--limit', type=int, default=20, help='Количество записей')
+    
+    # Команда для обновления данных
+    subparsers.add_parser('refresh', help='Обновить данные из базы данных')
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -630,6 +811,27 @@ def main():
         
         elif args.command == 'detail':
             viewer.show_detailed_processing_table(args.limit)
+        
+        elif args.command == 'clear':
+            viewer.clear_database(confirm=args.force)
+        
+        elif args.command == 'delete-event':
+            viewer.delete_event(args.event_id, args.account, confirm=args.force)
+        
+        elif args.command == 'list-events':
+            viewer.list_events_for_deletion(args.limit)
+        
+        elif args.command == 'refresh':
+            print("🔄 Обновление данных из базы данных...")
+            viewer.disconnect()
+            if viewer.connect():
+                print("✅ Подключение к базе данных обновлено")
+                print("\n📊 Обновленная статистика:")
+                viewer.show_statistics()
+                print("\n📋 Обновленная таблица обработки:")
+                viewer.show_processing_table(20)
+            else:
+                print("❌ Не удалось переподключиться к базе данных")
     
     finally:
         viewer.disconnect()
