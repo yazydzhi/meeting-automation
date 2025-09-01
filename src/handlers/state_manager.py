@@ -476,3 +476,52 @@ class StateManager:
                 
         except Exception as e:
             self.logger.error(f"❌ Ошибка очистки базы данных: {e}")
+    
+    def mark_transcription_processed(self, file_path: str, transcript_file: str, status: str = "success") -> bool:
+        """
+        Помечает транскрипцию как обработанную.
+        
+        Args:
+            file_path: Путь к исходному аудио файлу
+            transcript_file: Путь к файлу транскрипции
+            status: Статус обработки
+            
+        Returns:
+            True если успешно, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO processed_transcriptions 
+                    (file_path, transcript_file, status, processed_at)
+                    VALUES (?, ?, ?, ?)
+                ''', (file_path, transcript_file, status, datetime.now().isoformat()))
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка пометки транскрипции как обработанной: {e}")
+            return False
+    
+    def is_transcription_processed(self, file_path: str) -> bool:
+        """
+        Проверяет, была ли транскрипция уже обработана.
+        
+        Args:
+            file_path: Путь к аудио файлу
+            
+        Returns:
+            True если уже обработана, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(*) FROM processed_transcriptions 
+                    WHERE file_path = ? AND status = 'success'
+                ''', (file_path,))
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки статуса транскрипции: {e}")
+            return False

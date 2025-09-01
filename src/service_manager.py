@@ -1536,7 +1536,7 @@ class MeetingAutomationService:
                     media_stats.get("processed", 0) + 
                     transcription_stats.get("processed", 0) + 
                     notion_stats.get("processed", 0) + 
-                    summary_stats, notion_update_stats.get("processed", 0) + 
+                    summary_stats.get("processed", 0) + 
                     notion_update_stats.get("processed", 0)
                 ),
                 "errors_count": (
@@ -1545,7 +1545,7 @@ class MeetingAutomationService:
                     media_stats.get("errors", 0) + 
                     transcription_stats.get("errors", 0) + 
                     notion_stats.get("errors", 0) + 
-                    summary_stats, notion_update_stats.get("errors", 0) + 
+                    summary_stats.get("errors", 0) + 
                     notion_update_stats.get("errors", 0)
                 ),
                 

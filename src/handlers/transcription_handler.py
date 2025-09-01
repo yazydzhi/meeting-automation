@@ -24,6 +24,15 @@ class TranscriptionHandler(ProcessHandler):
         """
         super().__init__(config_manager, logger)
         self.transcription_handler = transcription_handler
+        
+        # Инициализируем StateManager для отслеживания обработанных транскрипций
+        try:
+            from .state_manager import StateManager
+            self.state_manager = StateManager(logger=self.logger)
+            self.logger.info("✅ StateManager инициализирован в TranscriptionHandler")
+        except Exception as e:
+            self.logger.warning(f"⚠️ StateManager недоступен в TranscriptionHandler: {e}")
+            self.state_manager = None
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process(self, *args, **kwargs) -> Dict[str, Any]:
@@ -103,6 +112,12 @@ class TranscriptionHandler(ProcessHandler):
                 self.logger.debug(f"⏭️ Пропускаем несжатый файл: {os.path.basename(file_path)}")
                 return False
             
+            # Проверяем в БД, была ли уже обработана транскрипция
+            if self.state_manager:
+                if self.state_manager.is_transcription_processed(file_path):
+                    self.logger.debug(f"⏭️ Транскрипция уже обработана: {os.path.basename(file_path)}")
+                    return False
+            
             # Генерируем путь к файлу транскрипции
             base_path = os.path.splitext(file_path)[0]
             transcript_file = base_path + '_transcript.txt'
@@ -165,6 +180,11 @@ class TranscriptionHandler(ProcessHandler):
                     f.write(transcript_text)
                 
                 self.logger.info(f"✅ Транскрипция успешно создана: {len(transcript_text)} символов")
+                
+                # Сохраняем информацию о транскрипции в БД
+                if self.state_manager:
+                    self.state_manager.mark_transcription_processed(file_path, transcript_file, "success")
+                
                 return True
                 
             except ImportError:
