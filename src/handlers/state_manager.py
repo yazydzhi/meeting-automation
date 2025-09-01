@@ -525,3 +525,53 @@ class StateManager:
         except Exception as e:
             self.logger.error(f"❌ Ошибка проверки статуса транскрипции: {e}")
             return False
+    
+    def mark_media_processed(self, file_path: str, compressed_video: str = "", compressed_audio: str = "", status: str = "success") -> bool:
+        """
+        Помечает медиа файл как обработанный.
+        
+        Args:
+            file_path: Путь к исходному медиа файлу
+            compressed_video: Путь к сжатому видео файлу
+            compressed_audio: Путь к сжатому аудио файлу
+            status: Статус обработки
+            
+        Returns:
+            True если успешно, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO processed_media 
+                    (file_path, compressed_video, compressed_audio, status, processed_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (file_path, compressed_video, compressed_audio, status, datetime.now().isoformat()))
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка пометки медиа файла как обработанного: {e}")
+            return False
+    
+    def is_media_processed(self, file_path: str) -> bool:
+        """
+        Проверяет, был ли медиа файл уже обработан.
+        
+        Args:
+            file_path: Путь к медиа файлу
+            
+        Returns:
+            True если уже обработан, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(*) FROM processed_media 
+                    WHERE file_path = ? AND status = 'success'
+                ''', (file_path,))
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки статуса медиа файла: {e}")
+            return False

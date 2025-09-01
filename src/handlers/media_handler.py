@@ -29,6 +29,15 @@ class MediaHandler(BaseHandler):
         self.last_media_check = 0
         self.media_check_interval = 1800  # 30 минут по умолчанию
         self.last_media_stats = {}
+        
+        # Инициализируем StateManager для отслеживания обработанных медиа файлов
+        try:
+            from .state_manager import StateManager
+            self.state_manager = StateManager(logger=self.logger)
+            self.logger.info("✅ StateManager инициализирован в MediaHandler")
+        except Exception as e:
+            self.logger.warning(f"⚠️ StateManager недоступен в MediaHandler: {e}")
+            self.state_manager = None
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process(self, quality: str = 'medium', *args, **kwargs) -> Dict[str, Any]:
@@ -222,6 +231,11 @@ class MediaHandler(BaseHandler):
                                 self.logger.info(f"⏭️ Файл уже обработан (пропускаем): {os.path.basename(file)}")
                                 continue
                             
+                            # Проверяем в БД, был ли уже обработан медиа файл
+                            if self.state_manager and self.state_manager.is_media_processed(file_path):
+                                self.logger.info(f"⏭️ Медиа файл уже обработан в БД (пропускаем): {os.path.basename(file)}")
+                                continue
+                            
                             video_files.append(file_path)
             
             return video_files
@@ -272,6 +286,10 @@ class MediaHandler(BaseHandler):
             if self.service_manager:
                 self.service_manager._mark_file_processed(video_file)
                 self.logger.info(f"✅ Файл отмечен как обработанный: {os.path.basename(video_file)}")
+            
+            # Сохраняем информацию о медиа файле в БД
+            if self.state_manager:
+                self.state_manager.mark_media_processed(video_file, compressed_video, compressed_audio, "success")
             
             # TASK-5: Логируем информацию о файлах
             if should_delete:
