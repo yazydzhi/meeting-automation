@@ -120,7 +120,7 @@ class TranscriptionHandler(ProcessHandler):
             
             # Генерируем путь к файлу транскрипции
             base_path = os.path.splitext(file_path)[0]
-            transcript_file = base_path + '_transcript.txt'
+            transcript_file = base_path + '__transcript.txt'
             
             # Если файл транскрипции уже существует, не обрабатываем
             if os.path.exists(transcript_file):
@@ -148,11 +148,11 @@ class TranscriptionHandler(ProcessHandler):
             # Реальная логика транскрипции через Whisper
             try:
                 # TASK-5: Генерируем умное имя для файла транскрипции
-                # Убираем _compressed из имени и добавляем _transcript
+                # Убираем _compressed из имени и добавляем __transcript
                 base_path = os.path.splitext(file_path)[0]
                 if base_path.endswith('_compressed'):
                     base_path = base_path[:-10]  # Убираем '_compressed'
-                transcript_file = base_path + '_transcript.txt'
+                transcript_file = base_path + '__transcript.txt'
                 
                 self.logger.info("🎤 Запуск транскрипции через Whisper...")
                 
