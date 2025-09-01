@@ -128,7 +128,8 @@ class MeetingAutomationService:
         self.logger.info("🚀 Инициализация менеджера сервиса...")
         
         # Загружаем конфигурацию
-        self._load_config()
+        if not self._load_config():
+            raise RuntimeError("Не удалось загрузить конфигурацию")
         
         # Инициализируем переменные для хранения статистики
         self.last_media_check = 0
@@ -383,7 +384,7 @@ class MeetingAutomationService:
                 
                 # Инициализируем ConfigManager
                 from src.config_manager import ConfigManager
-                self.config_manager = ConfigManager(self.config_file)
+                self.config_manager = ConfigManager()
                 
                 # Обновляем интервалы из конфигурации
                 general_config = self.config_manager.get_general_config()
