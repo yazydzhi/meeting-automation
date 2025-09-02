@@ -1273,7 +1273,7 @@ class MeetingAutomationService:
             
             # Этап 4: Саммари и другая полезная информация (если включено)
             summary_config = self.config_manager.get_summary_config()
-            if summary_config.get('enable_general_summary', False):
+            if summary_config.get('enable_general_summary', False) or summary_config.get('enable_complex_summary', False):
                 self.logger.info("📋 ЭТАП 4: Генерация саммари и анализ транскрипций...")
                 summary_start = time.time()
                 summary_stats, notion_update_stats = self.process_summaries()
@@ -1365,18 +1365,18 @@ class MeetingAutomationService:
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
     
     @retry(max_attempts=2, delay=3, backoff=2)
-    def process_summaries(self) -> Dict[str, Any]:
+    def process_summaries(self) -> tuple:
         """Обработка саммари для транскрипций."""
         try:
             summary_stats, notion_update_stats = self.summary_handler.process()
-            self.last_summary_stats, notion_update_stats = summary_stats
+            self.last_summary_stats = summary_stats
             return summary_stats, notion_update_stats
         except Exception as e:
             self.logger.error(f"❌ Ошибка генерации саммари: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
             error_stats = {"status": "error", "processed": 0, "errors": 1, "details": [str(e)]}
-            self.last_summary_stats, notion_update_stats = error_stats
-            return error_stats
+            self.last_summary_stats = error_stats
+            return error_stats, {"status": "skipped", "message": "Notion updates not implemented"}
     
 
     def service_worker(self):
