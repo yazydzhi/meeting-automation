@@ -7,6 +7,7 @@
 import sqlite3
 import json
 import sys
+import os
 import argparse
 from datetime import datetime
 from pathlib import Path
@@ -367,9 +368,9 @@ class DatabaseViewer:
             print("=" * 150)
             
             # Заголовок таблицы
-            header = f"{'Событие':<40} {'Дата/Время':<20} {'Аккаунт':<8} {'Календарь':<12} {'Медиа':<12} {'Транскрипция':<15} {'Notion':<12} {'Статус':<10}"
+            header = f"{'Событие':<40} {'Дата/Время':<20} {'Аккаунт':<8} {'Календарь':<12} {'Папка':<8} {'Notion':<8} {'Медиа':<12} {'Транскрипция':<15} {'Саммари':<10} {'Статус':<10}"
             print(header)
-            print("-" * 170)
+            print("-" * 200)
             
             for event in events:
                 event_id = event['event_id']
@@ -390,48 +391,82 @@ class DatabaseViewer:
                 # Проверяем статус обработки для каждого этапа
                 calendar_status = "✅" if event['processed_at'] else "❌"
                 
-                # Проверяем медиа файлы
+                # Проверяем создание папки
                 cursor.execute('''
-                    SELECT COUNT(*) FROM processed_media 
-                    WHERE file_path LIKE ?
-                ''', (f'%{event_id}%',))
-                media_count = cursor.fetchone()[0]
+                    SELECT COUNT(*) FROM folder_creation_status 
+                    WHERE event_id = ? AND account_type = ? AND status = 'success'
+                ''', (event_id, account_type))
+                folder_count = cursor.fetchone()[0]
+                folder_status = "✅" if folder_count > 0 else "❌"
+                
+                # Проверяем создание страницы в Notion
+                cursor.execute('''
+                    SELECT COUNT(*) FROM notion_sync_status 
+                    WHERE event_id = ? AND sync_status = 'success'
+                ''', (event_id,))
+                notion_page_count = cursor.fetchone()[0]
+                notion_page_status = "✅" if notion_page_count > 0 else "❌"
+                
+                # Проверяем медиа файлы - ищем по папке события
+                cursor.execute('''
+                    SELECT fcs.folder_path FROM folder_creation_status fcs
+                    WHERE fcs.event_id = ? AND fcs.account_type = ? AND fcs.status = 'success'
+                ''', (event_id, account_type))
+                folder_result = cursor.fetchone()
+                
+                media_count = 0
+                if folder_result:
+                    folder_path = folder_result[0]
+                    cursor.execute('''
+                        SELECT COUNT(*) FROM processed_media 
+                        WHERE file_path LIKE ?
+                    ''', (f'{folder_path}%',))
+                    media_count = cursor.fetchone()[0]
                 media_status = f"✅({media_count})" if media_count > 0 else "❌"
                 
-                # Проверяем транскрипции
-                cursor.execute('''
-                    SELECT COUNT(*) FROM processed_transcriptions 
-                    WHERE file_path LIKE ?
-                ''', (f'%{event_id}%',))
-                trans_count = cursor.fetchone()[0]
+                # Проверяем транскрипции - ищем по папке события
+                trans_count = 0
+                if folder_result:
+                    folder_path = folder_result[0]
+                    cursor.execute('''
+                        SELECT COUNT(*) FROM processed_transcriptions 
+                        WHERE file_path LIKE ?
+                    ''', (f'{folder_path}%',))
+                    trans_count = cursor.fetchone()[0]
                 trans_status = f"✅({trans_count})" if trans_count > 0 else "❌"
                 
-                # Проверяем синхронизацию с Notion
-                cursor.execute('''
-                    SELECT COUNT(*) FROM notion_sync 
-                    WHERE event_id = ?
-                ''', (event_id,))
-                notion_count = cursor.fetchone()[0]
-                notion_status = f"✅({notion_count})" if notion_count > 0 else "❌"
+                # Проверяем саммари - ищем по папке события
+                summary_count = 0
+                if folder_result:
+                    folder_path = folder_result[0]
+                    cursor.execute('''
+                        SELECT COUNT(*) FROM processed_summaries 
+                        WHERE summary_file LIKE ?
+                    ''', (f'{folder_path}%',))
+                    summary_count = cursor.fetchone()[0]
+                summary_status = f"✅({summary_count})" if summary_count > 0 else "❌"
                 
                 # Определяем общий статус
-                if media_count > 0 and trans_count > 0 and notion_count > 0:
+                if folder_count > 0 and notion_page_count > 0 and media_count > 0 and trans_count > 0 and summary_count > 0:
                     overall_status = "✅ Полный"
-                elif media_count > 0 or trans_count > 0 or notion_count > 0:
+                elif folder_count > 0 and notion_page_count > 0:
+                    overall_status = "🔄 Базовая обработка"
+                elif folder_count > 0 or notion_page_count > 0 or media_count > 0 or trans_count > 0 or summary_count > 0:
                     overall_status = "🔄 Частичный"
                 else:
                     overall_status = "❌ Только календарь"
                 
                 # Формируем строку таблицы
-                row = f"{event_title:<40} {event_datetime:<20} {account_type:<8} {calendar_status:<12} {media_status:<12} {trans_status:<15} {notion_status:<12} {overall_status:<10}"
+                row = f"{event_title:<40} {event_datetime:<20} {account_type:<8} {calendar_status:<12} {folder_status:<8} {notion_page_status:<8} {media_status:<12} {trans_status:<15} {summary_status:<10} {overall_status:<10}"
                 print(row)
             
-            print("-" * 150)
+            print("-" * 200)
             print("📝 Легенда:")
             print("  ✅ - Обработано")
             print("  ❌ - Не обработано")
             print("  (число) - Количество обработанных файлов")
-            print("  Полный - Все этапы выполнены")
+            print("  Полный - Все этапы выполнены (папка + Notion + медиа + транскрипция + саммари)")
+            print("  Базовая обработка - Создана папка и страница в Notion")
             print("  Частичный - Выполнены некоторые этапы")
             print("  Только календарь - Создано только событие в календаре")
             
@@ -695,6 +730,125 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения списка событий: {e}")
 
+    def show_processed_summaries(self, limit: int = 20):
+        """Показывает обработанные саммари."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    id,
+                    transcript_file,
+                    summary_file,
+                    analysis_file,
+                    status,
+                    created_at
+                FROM processed_summaries 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (limit,))
+            
+            summaries = cursor.fetchall()
+            
+            if not summaries:
+                print("📋 Обработанные саммари не найдены")
+                return
+            
+            print(f"📋 Обработанные саммари (последние {len(summaries)}):")
+            print("=" * 120)
+            print(f"{'ID':<3} {'Статус':<8} {'Создано':<20} {'Файл транскрипции':<50}")
+            print("=" * 120)
+            
+            for summary in summaries:
+                transcript_name = os.path.basename(summary['transcript_file']) if summary['transcript_file'] else 'N/A'
+                created_time = summary['created_at'][:19] if summary['created_at'] else 'N/A'
+                
+                print(f"{summary['id']:<3} {summary['status']:<8} {created_time:<20} {transcript_name:<50}")
+            
+            print("=" * 120)
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения саммари: {e}")
+
+    def show_notion_sync_status(self, limit: int = 20):
+        """Показывает статус синхронизации с Notion."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    id,
+                    event_id,
+                    page_id,
+                    page_url,
+                    sync_status,
+                    last_sync,
+                    created_at
+                FROM notion_sync_status 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (limit,))
+            
+            sync_records = cursor.fetchall()
+            
+            if not sync_records:
+                print("📝 Записи синхронизации с Notion не найдены")
+                return
+            
+            print(f"📝 Статус синхронизации с Notion (последние {len(sync_records)}):")
+            print("=" * 140)
+            print(f"{'ID':<3} {'Event ID':<15} {'Page ID':<15} {'Статус':<8} {'Последняя синхронизация':<20} {'Создано':<20}")
+            print("=" * 140)
+            
+            for record in sync_records:
+                page_id = record['page_id'][:12] + '...' if record['page_id'] and len(record['page_id']) > 15 else (record['page_id'] or 'N/A')
+                last_sync = record['last_sync'][:19] if record['last_sync'] else 'N/A'
+                created_time = record['created_at'][:19] if record['created_at'] else 'N/A'
+                
+                print(f"{record['id']:<3} {record['event_id']:<15} {page_id:<15} {record['sync_status']:<8} {last_sync:<20} {created_time:<20}")
+            
+            print("=" * 140)
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения статуса синхронизации Notion: {e}")
+
+    def show_folder_creation_status(self, limit: int = 20):
+        """Показывает статус создания папок."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT 
+                    id,
+                    event_id,
+                    folder_path,
+                    account_type,
+                    status,
+                    created_at
+                FROM folder_creation_status 
+                ORDER BY created_at DESC 
+                LIMIT ?
+            ''', (limit,))
+            
+            folders = cursor.fetchall()
+            
+            if not folders:
+                print("📁 Записи создания папок не найдены")
+                return
+            
+            print(f"📁 Статус создания папок (последние {len(folders)}):")
+            print("=" * 120)
+            print(f"{'ID':<3} {'Event ID':<15} {'Тип аккаунта':<8} {'Статус':<8} {'Создано':<20} {'Путь к папке':<50}")
+            print("=" * 120)
+            
+            for folder in folders:
+                folder_name = os.path.basename(folder['folder_path']) if folder['folder_path'] else 'N/A'
+                created_time = folder['created_at'][:19] if folder['created_at'] else 'N/A'
+                
+                print(f"{folder['id']:<3} {folder['event_id']:<15} {folder['account_type']:<8} {folder['status']:<8} {created_time:<20} {folder_name:<50}")
+            
+            print("=" * 120)
+            
+        except Exception as e:
+            print(f"❌ Ошибка получения статуса создания папок: {e}")
+
 
 def main():
     """Главная функция."""
@@ -747,6 +901,18 @@ def main():
     # Команда для детальной таблицы обработки
     detail_parser = subparsers.add_parser('detail', help='Показать детальную таблицу обработки с временными метками')
     detail_parser.add_argument('--limit', type=int, default=10, help='Количество записей')
+    
+    # Команда для показа саммари
+    summaries_parser = subparsers.add_parser('summaries', help='Показать обработанные саммари')
+    summaries_parser.add_argument('--limit', type=int, default=20, help='Количество записей')
+    
+    # Команда для показа статуса синхронизации с Notion
+    notion_sync_parser = subparsers.add_parser('notion-sync', help='Показать статус синхронизации с Notion')
+    notion_sync_parser.add_argument('--limit', type=int, default=20, help='Количество записей')
+    
+    # Команда для показа статуса создания папок
+    folders_parser = subparsers.add_parser('folders', help='Показать статус создания папок')
+    folders_parser.add_argument('--limit', type=int, default=20, help='Количество записей')
     
     # Команда для очистки базы данных
     clear_parser = subparsers.add_parser('clear', help='Очистить всю базу данных')
@@ -811,6 +977,15 @@ def main():
         
         elif args.command == 'detail':
             viewer.show_detailed_processing_table(args.limit)
+        
+        elif args.command == 'summaries':
+            viewer.show_processed_summaries(args.limit)
+        
+        elif args.command == 'notion-sync':
+            viewer.show_notion_sync_status(args.limit)
+        
+        elif args.command == 'folders':
+            viewer.show_folder_creation_status(args.limit)
         
         elif args.command == 'clear':
             viewer.clear_database(confirm=args.force)

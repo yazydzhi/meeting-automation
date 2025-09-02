@@ -575,3 +575,160 @@ class StateManager:
         except Exception as e:
             self.logger.error(f"❌ Ошибка проверки статуса медиа файла: {e}")
             return False
+
+    # ===== МЕТОДЫ ДЛЯ ОТСЛЕЖИВАНИЯ САММАРИ =====
+    
+    def mark_summary_processed(self, transcript_file: str, summary_file: str = "", analysis_file: str = "", status: str = "success") -> bool:
+        """
+        Помечает саммари как обработанное.
+        
+        Args:
+            transcript_file: Путь к файлу транскрипции
+            summary_file: Путь к файлу саммари
+            analysis_file: Путь к файлу анализа
+            status: Статус обработки
+            
+        Returns:
+            True если успешно, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO processed_summaries 
+                    (transcript_file, summary_file, analysis_file, status, created_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (transcript_file, summary_file, analysis_file, status))
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка пометки саммари как обработанного: {e}")
+            return False
+    
+    def is_summary_processed(self, transcript_file: str) -> bool:
+        """
+        Проверяет, было ли саммари уже обработано.
+        
+        Args:
+            transcript_file: Путь к файлу транскрипции
+            
+        Returns:
+            True если уже обработано, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(*) FROM processed_summaries 
+                    WHERE transcript_file = ? AND status = 'success'
+                ''', (transcript_file,))
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки статуса саммари: {e}")
+            return False
+
+    # ===== МЕТОДЫ ДЛЯ ОТСЛЕЖИВАНИЯ СИНХРОНИЗАЦИИ NOTION =====
+    
+    def mark_notion_synced(self, event_id: str, page_id: str = "", page_url: str = "", sync_status: str = "success") -> bool:
+        """
+        Помечает событие как синхронизированное с Notion.
+        
+        Args:
+            event_id: ID события
+            page_id: ID страницы в Notion
+            page_url: URL страницы в Notion
+            sync_status: Статус синхронизации
+            
+        Returns:
+            True если успешно, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO notion_sync_status 
+                    (event_id, page_id, page_url, sync_status, last_sync, created_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                ''', (event_id, page_id, page_url, sync_status))
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка пометки синхронизации Notion: {e}")
+            return False
+    
+    def is_notion_synced(self, event_id: str) -> bool:
+        """
+        Проверяет, было ли событие синхронизировано с Notion.
+        
+        Args:
+            event_id: ID события
+            
+        Returns:
+            True если уже синхронизировано, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(*) FROM notion_sync_status 
+                    WHERE event_id = ? AND sync_status = 'success'
+                ''', (event_id,))
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки статуса синхронизации Notion: {e}")
+            return False
+
+    # ===== МЕТОДЫ ДЛЯ ОТСЛЕЖИВАНИЯ СОЗДАНИЯ ПАПОК =====
+    
+    def mark_folder_created(self, event_id: str, folder_path: str, account_type: str, status: str = "success") -> bool:
+        """
+        Помечает папку как созданную.
+        
+        Args:
+            event_id: ID события
+            folder_path: Путь к папке
+            account_type: Тип аккаунта (personal/work)
+            status: Статус создания
+            
+        Returns:
+            True если успешно, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT OR REPLACE INTO folder_creation_status 
+                    (event_id, folder_path, account_type, status, created_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (event_id, folder_path, account_type, status))
+                conn.commit()
+                return True
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка пометки создания папки: {e}")
+            return False
+    
+    def is_folder_created(self, event_id: str, account_type: str) -> bool:
+        """
+        Проверяет, была ли папка уже создана.
+        
+        Args:
+            event_id: ID события
+            account_type: Тип аккаунта (personal/work)
+            
+        Returns:
+            True если уже создана, False иначе
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT COUNT(*) FROM folder_creation_status 
+                    WHERE event_id = ? AND account_type = ? AND status = 'success'
+                ''', (event_id, account_type))
+                count = cursor.fetchone()[0]
+                return count > 0
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка проверки статуса создания папки: {e}")
+            return False

@@ -31,6 +31,15 @@ class NotionHandler(BaseHandler):
         self.notion_handler = notion_handler
         self.notion_api = NotionAPI(config_manager, logger)
         self.last_notion_stats = {}
+        
+        # Инициализируем StateManager для отслеживания синхронизации с Notion
+        try:
+            from .state_manager import StateManager
+            self.state_manager = StateManager(logger=self.logger)
+            self.logger.info("✅ StateManager инициализирован в NotionHandler")
+        except Exception as e:
+            self.logger.warning(f"⚠️ StateManager недоступен в NotionHandler: {e}")
+            self.state_manager = None
     
     @retry(max_attempts=2, delay=3, backoff=2)
     def process(self, *args, **kwargs) -> Dict[str, Any]:
@@ -199,9 +208,22 @@ class NotionHandler(BaseHandler):
                 notion_result = create_meeting_page(event_data, self.config_manager)
                 
                 if notion_result and notion_result.get('status') == 'success':
+                    page_id = notion_result.get('page_id', 'unknown')
+                    page_url = notion_result.get('page_url', '')
+                    
+                    # Помечаем событие как синхронизированное с Notion в БД
+                    if self.state_manager and event_data.get('id'):
+                        self.state_manager.mark_notion_synced(
+                            event_data['id'], 
+                            page_id, 
+                            page_url, 
+                            "success"
+                        )
+                    
                     result = {
                         "status": "success",
-                        "page_id": notion_result.get('page_id', 'unknown'),
+                        "page_id": page_id,
+                        "page_url": page_url,
                         "message": "Страница встречи успешно создана в Notion"
                     }
                 else:
@@ -262,6 +284,15 @@ class NotionHandler(BaseHandler):
                 notion_result = update_meeting_page(page_id, update_data, self.config_manager)
                 
                 if notion_result and notion_result.get('status') == 'success':
+                    # Помечаем событие как синхронизированное с Notion в БД
+                    if self.state_manager and update_data.get('event_id'):
+                        self.state_manager.mark_notion_synced(
+                            update_data['event_id'], 
+                            page_id, 
+                            notion_result.get('page_url', ''), 
+                            "success"
+                        )
+                    
                     result = {
                         "status": "success",
                         "page_id": page_id,

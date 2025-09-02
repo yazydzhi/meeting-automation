@@ -252,6 +252,15 @@ class CalendarIntegrationHandler(BaseHandler):
             else:
                 self.logger.info(f"📁 Папка уже существует: {folder_path}")
             
+            # Помечаем папку как созданную в БД
+            if self.state_manager and event.get('id'):
+                self.state_manager.mark_folder_created(
+                    event['id'], 
+                    folder_path, 
+                    account_type, 
+                    "success"
+                )
+            
             # Создаем файл статуса
             self._create_status_file(folder_path, event, account_type)
             
@@ -416,6 +425,15 @@ class CalendarIntegrationHandler(BaseHandler):
                 update_result = self.notion_handler.update_existing_meeting_page(existing_page_id, event, account_type)
                 
                 if update_result.get('success'):
+                    # Помечаем событие как синхронизированное с Notion в БД
+                    if self.state_manager and event.get('id'):
+                        self.state_manager.mark_notion_synced(
+                            event['id'], 
+                            existing_page_id, 
+                            update_result.get('page_url', ''), 
+                            "success"
+                        )
+                    
                     return {
                         "success": True,
                         "page_id": existing_page_id,
@@ -433,10 +451,21 @@ class CalendarIntegrationHandler(BaseHandler):
             notion_page = self.notion_handler._create_notion_page(page_data)
             
             if notion_page:
-                self.logger.info(f"✅ Страница Notion создана для {event.get('title', 'Unknown')}: {notion_page.get('page_id')}")
+                page_id = notion_page.get('page_id')
+                self.logger.info(f"✅ Страница Notion создана для {event.get('title', 'Unknown')}: {page_id}")
+                
+                # Помечаем событие как синхронизированное с Notion в БД
+                if self.state_manager and event.get('id'):
+                    self.state_manager.mark_notion_synced(
+                        event['id'], 
+                        page_id, 
+                        notion_page.get('url', ''), 
+                        "success"
+                    )
+                
                 return {
                     "success": True,
-                    "page_id": notion_page.get('page_id'),
+                    "page_id": page_id,
                     "message": "Notion page created successfully",
                     "updated": False
                 }

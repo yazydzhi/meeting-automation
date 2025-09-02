@@ -39,6 +39,9 @@ class InteractiveDBViewer:
         print("  8 - detail    - Детальная таблица с временными метками")
         print("  9 - raw       - Сырое состояние цикла")
         print("  0 - search    - Поиск событий")
+        print("  s - summaries - Обработанные саммари")
+        print("  n - notion-sync - Статус синхронизации с Notion")
+        print("  f - folders   - Статус создания папок")
         print("  l - list      - Список событий для удаления")
         print("  d - delete    - Удалить событие")
         print("  c - clear     - Очистить базу данных")
@@ -97,6 +100,15 @@ class InteractiveDBViewer:
                     self._handle_clear_command()
                 elif command.lower() == 'r':
                     self._handle_refresh_command()
+                elif command.lower() == 's':
+                    self.viewer.show_processed_summaries(20)
+                    self._wait_for_return()
+                elif command.lower() == 'n':
+                    self.viewer.show_notion_sync_status(20)
+                    self._wait_for_return()
+                elif command.lower() == 'f':
+                    self.viewer.show_folder_creation_status(20)
+                    self._wait_for_return()
                 
                 # Обработка старых команд для совместимости
                 elif command.lower() == 'stats':
@@ -122,6 +134,15 @@ class InteractiveDBViewer:
                     self._wait_for_return()
                 elif command.lower() == 'detail':
                     self.viewer.show_detailed_processing_table(10)
+                    self._wait_for_return()
+                elif command.lower() == 'summaries':
+                    self.viewer.show_processed_summaries(20)
+                    self._wait_for_return()
+                elif command.lower() == 'notion-sync':
+                    self.viewer.show_notion_sync_status(20)
+                    self._wait_for_return()
+                elif command.lower() == 'folders':
+                    self.viewer.show_folder_creation_status(20)
                     self._wait_for_return()
                 elif command.startswith('search '):
                     query = command[7:].strip()
@@ -203,6 +224,9 @@ class InteractiveDBViewer:
         print("  9 - raw       - Сырое состояние цикла")
         print("  0 - search    - Поиск событий")
         print("\nБуквенные команды:")
+        print("  s - summaries - Обработанные саммари")
+        print("  n - notion-sync - Статус синхронизации с Notion")
+        print("  f - folders   - Статус создания папок")
         print("  h - help      - Показать эту справку")
         print("  q - quit/exit - Выход из программы")
         print("  l - list      - Список событий для удаления")

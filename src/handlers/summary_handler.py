@@ -22,6 +22,15 @@ class SummaryHandler(ProcessHandler):
         except ImportError:
             self.prompt_manager = None
             self.logger.warning("⚠️ PromptManager не найден, используется базовая функциональность")
+        
+        # Инициализируем StateManager для отслеживания обработанных саммари
+        try:
+            from .state_manager import StateManager
+            self.state_manager = StateManager(logger=self.logger)
+            self.logger.info("✅ StateManager инициализирован в SummaryHandler")
+        except Exception as e:
+            self.logger.warning(f"⚠️ StateManager недоступен в SummaryHandler: {e}")
+            self.state_manager = None
     
     def process(self, account_type: str = 'both') -> Dict[str, Any]:
         """
@@ -340,13 +349,22 @@ class SummaryHandler(ProcessHandler):
             if not os.path.exists(file_path):
                 return False
             
+            # Проверяем в БД, было ли саммари уже обработано
+            if self.state_manager:
+                if self.state_manager.is_summary_processed(file_path):
+                    self.logger.debug(f"⏭️ Саммари уже обработано: {os.path.basename(file_path)}")
+                    return False
+            
             # Генерируем пути к файлам саммари и анализа
             base_path = os.path.splitext(file_path)[0]
             summary_file = base_path + '_summary.txt'
             analysis_file = base_path + '_analysis.json'
             
-            # TASK-2: Всегда обрабатываем все файлы транскрипций
-            # для создания комплексных саммари, особенно когда есть несколько видео
+            # Проверяем существование файлов саммари
+            if os.path.exists(summary_file) and os.path.exists(analysis_file):
+                self.logger.debug(f"⏭️ Файлы саммари уже существуют: {os.path.basename(file_path)}")
+                return False
+            
             return True
             
         except Exception as e:
@@ -470,6 +488,11 @@ class SummaryHandler(ProcessHandler):
                 f.write('}\n')
             
             self.logger.info(f"✅ Созданы саммари и анализ: {summary_file}, {analysis_file}")
+            
+            # Помечаем саммари как обработанное в БД
+            if self.state_manager:
+                self.state_manager.mark_summary_processed(file_path, summary_file, analysis_file, "success")
+            
             return True
             
         except Exception as e:

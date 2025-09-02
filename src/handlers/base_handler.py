@@ -138,7 +138,7 @@ class BaseHandler(ABC):
         processed = result.get("processed", 0)
         errors = result.get("errors", 0)
         
-        if status == "success":
+        if status in ["success", "no_files"]:
             self.logger.info(f"✅ {operation} завершена: обработано {processed}, ошибок {errors}")
         else:
             self.logger.error(f"❌ {operation} завершена с ошибками: {errors}")
