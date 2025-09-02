@@ -485,7 +485,7 @@ class StateManager:
     
     def mark_transcription_processed(self, file_path: str, transcript_file: str, status: str = "success") -> bool:
         """
-        Помечает транскрипцию как обработанную.
+        Помечает транскрипцию как обработанную и обновляет Notion.
         
         Args:
             file_path: Путь к исходному аудио файлу
@@ -498,12 +498,21 @@ class StateManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                
+                # Пытаемся найти event_id по пути к файлу
+                event_id = self._find_event_id_by_file_path(file_path)
+                
                 cursor.execute('''
                     INSERT OR REPLACE INTO processed_transcriptions 
-                    (file_path, transcript_file, status, processed_at)
-                    VALUES (?, ?, ?, ?)
-                ''', (file_path, transcript_file, status, datetime.now().isoformat()))
+                    (file_path, transcript_file, status, event_id, processed_at)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (file_path, transcript_file, status, event_id, datetime.now().isoformat()))
                 conn.commit()
+                
+                # Если есть event_id и файл транскрипции, обновляем Notion
+                if event_id and transcript_file and os.path.exists(transcript_file):
+                    self._update_notion_with_transcription(event_id, transcript_file)
+                
                 return True
         except Exception as e:
             self.logger.error(f"❌ Ошибка пометки транскрипции как обработанной: {e}")
@@ -586,7 +595,7 @@ class StateManager:
     
     def mark_summary_processed(self, transcript_file: str, summary_file: str = "", analysis_file: str = "", status: str = "success") -> bool:
         """
-        Помечает саммари как обработанное.
+        Помечает саммари как обработанное и обновляет Notion.
         
         Args:
             transcript_file: Путь к файлу транскрипции
@@ -600,12 +609,29 @@ class StateManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                
+                # Находим event_id для транскрипции
+                cursor.execute('''
+                    SELECT event_id FROM processed_transcriptions 
+                    WHERE transcript_file = ?
+                ''', (transcript_file,))
+                
+                result = cursor.fetchone()
+                event_id = result[0] if result else None
+                
+                # Сохраняем саммари в БД
                 cursor.execute('''
                     INSERT OR REPLACE INTO processed_summaries 
-                    (transcript_file, summary_file, analysis_file, status, created_at)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
-                ''', (transcript_file, summary_file, analysis_file, status))
+                    (transcript_file, summary_file, analysis_file, status, event_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (transcript_file, summary_file, analysis_file, status, event_id))
+                
                 conn.commit()
+                
+                # Если есть event_id и файлы саммари, обновляем Notion
+                if event_id and summary_file and os.path.exists(summary_file):
+                    self._update_notion_with_summary(event_id, summary_file, analysis_file)
+                
                 return True
         except Exception as e:
             self.logger.error(f"❌ Ошибка пометки саммари как обработанного: {e}")
@@ -738,3 +764,309 @@ class StateManager:
         except Exception as e:
             self.logger.error(f"❌ Ошибка проверки статуса создания папки: {e}")
             return False
+    
+    def _update_notion_with_summary(self, event_id: str, summary_file: str, analysis_file: str = ""):
+        """
+        Обновляет страницу Notion с саммари и анализом.
+        
+        Args:
+            event_id: ID события
+            summary_file: Путь к файлу саммари
+            analysis_file: Путь к файлу анализа
+        """
+        try:
+            # Получаем page_id для события
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT page_id FROM notion_sync_status 
+                    WHERE event_id = ?
+                ''', (event_id,))
+                
+                result = cursor.fetchone()
+                if not result or not result[0]:
+                    self.logger.warning(f"⚠️ Page ID не найден для события {event_id}")
+                    return
+                
+                page_id = result[0]
+            
+            # Читаем содержимое саммари
+            if not os.path.exists(summary_file):
+                self.logger.warning(f"⚠️ Файл саммари не найден: {summary_file}")
+                return
+            
+            with open(summary_file, 'r', encoding='utf-8') as f:
+                summary_content = f.read()
+            
+            # Читаем содержимое анализа (если есть)
+            analysis_content = ""
+            if analysis_file and os.path.exists(analysis_file):
+                with open(analysis_file, 'r', encoding='utf-8') as f:
+                    analysis_content = f.read()
+            
+            # Обновляем страницу Notion
+            self._add_content_to_notion_page(page_id, summary_content, analysis_content)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления Notion с саммари: {e}")
+    
+    def _add_content_to_notion_page(self, page_id: str, summary_content: str, analysis_content: str = ""):
+        """
+        Добавляет контент в страницу Notion.
+        
+        Args:
+            page_id: ID страницы в Notion
+            summary_content: Содержимое саммари
+            analysis_content: Содержимое анализа
+        """
+        try:
+            import requests
+            import os
+            
+            # Получаем токен из переменных окружения
+            notion_token = os.getenv('NOTION_TOKEN')
+            if not notion_token:
+                self.logger.warning("⚠️ NOTION_TOKEN не найден в переменных окружения")
+                return
+            
+            headers = {
+                "Authorization": f"Bearer {notion_token}",
+                "Content-Type": "application/json",
+                "Notion-Version": "2022-06-28"
+            }
+            
+            # Формируем блоки для добавления
+            blocks_to_add = []
+            
+            # Добавляем заголовок для саммари
+            blocks_to_add.append({
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": "📊 Саммари и анализ"
+                            }
+                        }
+                    ]
+                }
+            })
+            
+            # Добавляем саммари
+            blocks_to_add.append({
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": summary_content
+                            }
+                        }
+                    ]
+                }
+            })
+            
+            # Добавляем анализ (если есть)
+            if analysis_content:
+                blocks_to_add.append({
+                    "type": "heading_3",
+                    "heading_3": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": "🔍 Детальный анализ"
+                                }
+                            }
+                        ]
+                    }
+                })
+                
+                blocks_to_add.append({
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {
+                                    "content": analysis_content
+                                }
+                            }
+                        ]
+                    }
+                })
+            
+            # Добавляем контент в страницу
+            url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+            payload = {
+                "children": blocks_to_add
+            }
+            
+            response = requests.patch(url, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            self.logger.info(f"✅ Страница Notion обновлена с саммари: {page_id}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка добавления контента в Notion: {e}")
+    
+    def _find_event_id_by_file_path(self, file_path: str) -> str:
+        """
+        Находит event_id по пути к файлу.
+        
+        Args:
+            file_path: Путь к файлу
+            
+        Returns:
+            event_id или None
+        """
+        try:
+            import re
+            
+            # Извлекаем дату из пути
+            date_match = re.search(r'(\d{4}-\d{2}-\d{2})', file_path)
+            if not date_match:
+                return None
+            
+            date_str = date_match.group(1)
+            
+            # Извлекаем название события из пути
+            path_parts = file_path.split('/')
+            if len(path_parts) > 1:
+                folder_name = path_parts[-2]  # Папка с событием
+                
+                # Очищаем название от даты и времени
+                clean_folder_name = re.sub(r'\d{4}-\d{2}-\d{2}\s+\d{2}-\d{2}\s*', '', folder_name).strip()
+                clean_folder_name = re.sub(r'[^\w\s]', '', clean_folder_name.lower()).strip()
+                
+                # Ищем событие в базе данных
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
+                    
+                    # Ищем по дате
+                    cursor.execute('''
+                        SELECT event_id FROM processed_events 
+                        WHERE event_start_time LIKE ?
+                    ''', (f"{date_str}%",))
+                    
+                    results = cursor.fetchall()
+                    if results:
+                        # Если найдено несколько, выбираем первое
+                        return results[0][0]
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка поиска event_id по пути: {e}")
+            return None
+    
+    def _update_notion_with_transcription(self, event_id: str, transcript_file: str):
+        """
+        Обновляет страницу Notion с транскрипцией.
+        
+        Args:
+            event_id: ID события
+            transcript_file: Путь к файлу транскрипции
+        """
+        try:
+            # Получаем page_id для события
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT page_id FROM notion_sync_status 
+                    WHERE event_id = ?
+                ''', (event_id,))
+                
+                result = cursor.fetchone()
+                if not result or not result[0]:
+                    self.logger.warning(f"⚠️ Page ID не найден для события {event_id}")
+                    return
+                
+                page_id = result[0]
+            
+            # Читаем содержимое транскрипции
+            if not os.path.exists(transcript_file):
+                self.logger.warning(f"⚠️ Файл транскрипции не найден: {transcript_file}")
+                return
+            
+            with open(transcript_file, 'r', encoding='utf-8') as f:
+                transcript_content = f.read()
+            
+            # Обновляем страницу Notion
+            self._add_transcription_to_notion_page(page_id, transcript_content)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления Notion с транскрипцией: {e}")
+    
+    def _add_transcription_to_notion_page(self, page_id: str, transcript_content: str):
+        """
+        Добавляет транскрипцию в страницу Notion.
+        
+        Args:
+            page_id: ID страницы в Notion
+            transcript_content: Содержимое транскрипции
+        """
+        try:
+            import requests
+            import os
+            
+            # Получаем токен из переменных окружения
+            notion_token = os.getenv('NOTION_TOKEN')
+            if not notion_token:
+                self.logger.warning("⚠️ NOTION_TOKEN не найден в переменных окружения")
+                return
+            
+            headers = {
+                "Authorization": f"Bearer {notion_token}",
+                "Content-Type": "application/json",
+                "Notion-Version": "2022-06-28"
+            }
+            
+            # Формируем блоки для добавления
+            blocks_to_add = []
+            
+            # Добавляем заголовок для транскрипции
+            blocks_to_add.append({
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": "📝 Транскрипция встречи"
+                            }
+                        }
+                    ]
+                }
+            })
+            
+            # Добавляем транскрипцию
+            blocks_to_add.append({
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [
+                        {
+                            "type": "text",
+                            "text": {
+                                "content": transcript_content
+                            }
+                        }
+                    ]
+                }
+            })
+            
+            # Добавляем контент в страницу
+            url = f"https://api.notion.com/v1/blocks/{page_id}/children"
+            payload = {
+                "children": blocks_to_add
+            }
+            
+            response = requests.patch(url, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            self.logger.info(f"✅ Страница Notion обновлена с транскрипцией: {page_id}")
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка добавления транскрипции в Notion: {e}")
