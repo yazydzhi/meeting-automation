@@ -278,7 +278,8 @@ class StateManager:
         return any(metrics[key] > 0 for key in metrics)
     
     def mark_event_processed(self, event_id: str, account_type: str, event_title: str = "", 
-                           event_start_time: str = "", event_end_time: str = "") -> bool:
+                           event_start_time: str = "", event_end_time: str = "", 
+                           attendees: str = "", meeting_link: str = "", calendar_type: str = "") -> bool:
         """
         Помечает событие календаря как обработанное.
         
@@ -288,6 +289,9 @@ class StateManager:
             event_title: Название события
             event_start_time: Время начала события
             event_end_time: Время окончания события
+            attendees: Участники встречи (JSON строка или список через запятую)
+            meeting_link: Ссылка на встречу
+            calendar_type: Тип календаря (google_calendar, ical_calendar)
             
         Returns:
             True если успешно, False иначе
@@ -298,9 +302,11 @@ class StateManager:
                 
                 cursor.execute('''
                     INSERT OR REPLACE INTO processed_events 
-                    (event_id, account_type, event_title, event_start_time, event_end_time)
-                    VALUES (?, ?, ?, ?, ?)
-                ''', (event_id, account_type, event_title, event_start_time, event_end_time))
+                    (event_id, account_type, event_title, event_start_time, event_end_time, 
+                     attendees, meeting_link, calendar_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (event_id, account_type, event_title, event_start_time, event_end_time,
+                      attendees, meeting_link, calendar_type))
                 
                 conn.commit()
                 return True

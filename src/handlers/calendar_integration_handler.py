@@ -204,7 +204,16 @@ class CalendarIntegrationHandler(BaseHandler):
             event_title = event.get('title', 'Unknown Event')
             event_start_time = event.get('start', '')
             event_end_time = event.get('end', '')
-            self._mark_event_processed(event_id, account_type, event_title, event_start_time, event_end_time)
+            
+            # Подготавливаем дополнительные данные
+            attendees = event.get('attendees', [])
+            attendees_str = ', '.join(attendees) if isinstance(attendees, list) else str(attendees)
+            
+            meeting_link = event.get('html_link', '') or event.get('location', '')
+            calendar_type = event.get('source', '')
+            
+            self._mark_event_processed(event_id, account_type, event_title, event_start_time, event_end_time,
+                                     attendees_str, meeting_link, calendar_type)
             
             return {
                 "status": "success",
@@ -522,7 +531,8 @@ class CalendarIntegrationHandler(BaseHandler):
             return False
     
     def _mark_event_processed(self, event_id: str, account_type: str, event_title: str = "", 
-                            event_start_time: str = "", event_end_time: str = ""):
+                            event_start_time: str = "", event_end_time: str = "",
+                            attendees: str = "", meeting_link: str = "", calendar_type: str = ""):
         """
         Помечает событие как обработанное.
         
@@ -532,12 +542,16 @@ class CalendarIntegrationHandler(BaseHandler):
             event_title: Название события
             event_start_time: Время начала события
             event_end_time: Время окончания события
+            attendees: Участники встречи
+            meeting_link: Ссылка на встречу
+            calendar_type: Тип календаря
         """
         try:
             # Используем StateManager если доступен
             if self.state_manager:
                 self.state_manager.mark_event_processed(event_id, account_type, event_title, 
-                                                      event_start_time, event_end_time)
+                                                      event_start_time, event_end_time,
+                                                      attendees, meeting_link, calendar_type)
             else:
                 # Fallback на старый кэш
                 cache_key = f"{account_type}_{event_id}"
