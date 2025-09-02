@@ -112,7 +112,7 @@ class CalendarHandler(BaseHandler):
             
             events_result = self.google_service.events().list(
                 calendarId='primary',
-                timeMin=now,
+                timeMin=start_time,
                 timeMax=end_time,
                 singleEvents=True,
                 orderBy='startTime'
