@@ -60,19 +60,29 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения списка таблиц: {e}")
     
-    def show_system_state(self, limit: int = 10):
+    def show_system_state(self, limit: int = None):
         """Показывает состояние системы."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT cycle_id, timestamp, personal_events_processed, work_events_processed,
-                       media_processed, transcriptions_processed, notion_synced, errors_count,
-                       personal_status, work_status, media_status, transcription_status, notion_status,
-                       execution_time, created_at
-                FROM system_state 
-                ORDER BY created_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT cycle_id, timestamp, personal_events_processed, work_events_processed,
+                           media_processed, transcriptions_processed, notion_synced, errors_count,
+                           personal_status, work_status, media_status, transcription_status, notion_status,
+                           execution_time, created_at
+                    FROM system_state 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT cycle_id, timestamp, personal_events_processed, work_events_processed,
+                           media_processed, transcriptions_processed, notion_synced, errors_count,
+                           personal_status, work_status, media_status, transcription_status, notion_status,
+                           execution_time, created_at
+                    FROM system_state 
+                    ORDER BY created_at DESC
+                ''')
             
             states = cursor.fetchall()
             
@@ -80,7 +90,10 @@ class DatabaseViewer:
                 print("📊 Состояния системы не найдены")
                 return
             
-            print(f"📊 Последние {len(states)} состояний системы:")
+            if limit:
+                print(f"📊 Последние {len(states)} состояний системы:")
+            else:
+                print(f"📊 Все {len(states)} состояний системы:")
             print("=" * 120)
             
             for state in states:
@@ -95,26 +108,41 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения состояния системы: {e}")
     
-    def show_processed_events(self, limit: int = 20, account_type: Optional[str] = None):
+    def show_processed_events(self, limit: int = None, account_type: Optional[str] = None):
         """Показывает обработанные события календаря."""
         try:
             cursor = self.conn.cursor()
             
             if account_type:
-                cursor.execute('''
-                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
-                    FROM processed_events 
-                    WHERE account_type = ?
-                    ORDER BY processed_at DESC 
-                    LIMIT ?
-                ''', (account_type, limit))
+                if limit:
+                    cursor.execute('''
+                        SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                        FROM processed_events 
+                        WHERE account_type = ?
+                        ORDER BY processed_at DESC 
+                        LIMIT ?
+                    ''', (account_type, limit))
+                else:
+                    cursor.execute('''
+                        SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                        FROM processed_events 
+                        WHERE account_type = ?
+                        ORDER BY processed_at DESC
+                    ''', (account_type,))
             else:
-                cursor.execute('''
-                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
-                    FROM processed_events 
-                    ORDER BY processed_at DESC 
-                    LIMIT ?
-                ''', (limit,))
+                if limit:
+                    cursor.execute('''
+                        SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                        FROM processed_events 
+                        ORDER BY processed_at DESC 
+                        LIMIT ?
+                    ''', (limit,))
+                else:
+                    cursor.execute('''
+                        SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                        FROM processed_events 
+                        ORDER BY processed_at DESC
+                    ''')
             
             events = cursor.fetchall()
             
@@ -122,7 +150,10 @@ class DatabaseViewer:
                 print("📅 Обработанные события не найдены")
                 return
             
-            print(f"📅 Последние {len(events)} обработанных событий:")
+            if limit:
+                print(f"📅 Последние {len(events)} обработанных событий:")
+            else:
+                print(f"📅 Все {len(events)} обработанных событий:")
             if account_type:
                 print(f"   (фильтр: {account_type})")
             print("=" * 100)
@@ -141,16 +172,23 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения обработанных событий: {e}")
     
-    def show_processed_media(self, limit: int = 20):
+    def show_processed_media(self, limit: int = None):
         """Показывает обработанные медиа файлы."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT file_path, file_hash, status, processed_at
-                FROM processed_media 
-                ORDER BY processed_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT file_path, file_hash, status, processed_at
+                    FROM processed_media 
+                    ORDER BY processed_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT file_path, file_hash, status, processed_at
+                    FROM processed_media 
+                    ORDER BY processed_at DESC
+                ''')
             
             media = cursor.fetchall()
             
@@ -158,7 +196,10 @@ class DatabaseViewer:
                 print("🎬 Обработанные медиа файлы не найдены")
                 return
             
-            print(f"🎬 Последние {len(media)} обработанных медиа файлов:")
+            if limit:
+                print(f"🎬 Последние {len(media)} обработанных медиа файлов:")
+            else:
+                print(f"🎬 Все {len(media)} обработанных медиа файлов:")
             print("=" * 120)
             
             for file in media:
@@ -171,16 +212,23 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения обработанных медиа файлов: {e}")
     
-    def show_processed_transcriptions(self, limit: int = 20):
+    def show_processed_transcriptions(self, limit: int = None):
         """Показывает обработанные транскрипции."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT file_path, status, processed_at
-                FROM processed_transcriptions 
-                ORDER BY processed_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT file_path, status, processed_at
+                    FROM processed_transcriptions 
+                    ORDER BY processed_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT file_path, status, processed_at
+                    FROM processed_transcriptions 
+                    ORDER BY processed_at DESC
+                ''')
             
             transcriptions = cursor.fetchall()
             
@@ -188,7 +236,10 @@ class DatabaseViewer:
                 print("🎤 Обработанные транскрипции не найдены")
                 return
             
-            print(f"🎤 Последние {len(transcriptions)} обработанных транскрипций:")
+            if limit:
+                print(f"🎤 Последние {len(transcriptions)} обработанных транскрипций:")
+            else:
+                print(f"🎤 Все {len(transcriptions)} обработанных транскрипций:")
             print("=" * 100)
             
             for trans in transcriptions:
@@ -200,16 +251,23 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения обработанных транскрипций: {e}")
     
-    def show_notion_sync(self, limit: int = 20):
+    def show_notion_sync(self, limit: int = None):
         """Показывает синхронизацию с Notion."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT page_id, event_id, status, last_sync
-                FROM notion_sync 
-                ORDER BY last_sync DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT page_id, event_id, status, last_sync
+                    FROM notion_sync 
+                    ORDER BY last_sync DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT page_id, event_id, status, last_sync
+                    FROM notion_sync 
+                    ORDER BY last_sync DESC
+                ''')
             
             syncs = cursor.fetchall()
             
@@ -217,7 +275,10 @@ class DatabaseViewer:
                 print("📝 Синхронизация с Notion не найдена")
                 return
             
-            print(f"📝 Последние {len(syncs)} синхронизаций с Notion:")
+            if limit:
+                print(f"📝 Последние {len(syncs)} синхронизаций с Notion:")
+            else:
+                print(f"📝 Все {len(syncs)} синхронизаций с Notion:")
             print("=" * 100)
             
             for sync in syncs:
@@ -310,17 +371,25 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения сырого состояния: {e}")
     
-    def search_events(self, query: str, limit: int = 10):
+    def search_events(self, query: str, limit: int = None):
         """Поиск событий по названию."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
-                FROM processed_events 
-                WHERE event_title LIKE ?
-                ORDER BY processed_at DESC 
-                LIMIT ?
-            ''', (f'%{query}%', limit))
+            if limit:
+                cursor.execute('''
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    WHERE event_title LIKE ?
+                    ORDER BY processed_at DESC 
+                    LIMIT ?
+                ''', (f'%{query}%', limit))
+            else:
+                cursor.execute('''
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    WHERE event_title LIKE ?
+                    ORDER BY processed_at DESC
+                ''', (f'%{query}%',))
             
             events = cursor.fetchall()
             
@@ -345,18 +414,25 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка поиска событий: {e}")
     
-    def show_processing_table(self, limit: int = 20):
+    def show_processing_table(self, limit: int = None):
         """Показывает таблицу обработки событий."""
         try:
             cursor = self.conn.cursor()
             
             # Получаем все события
-            cursor.execute('''
-                SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
-                FROM processed_events 
-                ORDER BY processed_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    ORDER BY processed_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    ORDER BY processed_at DESC
+                ''')
             
             events = cursor.fetchall()
             
@@ -364,13 +440,16 @@ class DatabaseViewer:
                 print("📊 События для таблицы не найдены")
                 return
             
-            print(f"📊 ТАБЛИЦА ОБРАБОТКИ СОБЫТИЙ (последние {len(events)} событий)")
+            if limit:
+                print(f"📊 ТАБЛИЦА ОБРАБОТКИ СОБЫТИЙ (последние {len(events)} событий)")
+            else:
+                print(f"📊 ТАБЛИЦА ОБРАБОТКИ СОБЫТИЙ (все {len(events)} событий)")
             print("=" * 150)
             
             # Заголовок таблицы
-            header = f"{'Событие':<40} {'Дата/Время':<20} {'Аккаунт':<8} {'Календарь':<12} {'Папка':<8} {'Notion':<8} {'Медиа':<12} {'Транскрипция':<15} {'Саммари':<10} {'Статус':<10}"
+            header = f"{'Событие':<40} {'Дата/Время':<20} {'Аккаунт':<8} {'Календарь':<12} {'Папка':<8} {'Notion':<8} {'Notion Content':<15} {'Медиа':<12} {'Транскрипция':<15} {'Саммари':<10} {'Статус':<10}"
             print(header)
-            print("-" * 200)
+            print("-" * 220)
             
             for event in events:
                 event_id = event['event_id']
@@ -406,6 +485,25 @@ class DatabaseViewer:
                 ''', (event_id,))
                 notion_page_count = cursor.fetchone()[0]
                 notion_page_status = "✅" if notion_page_count > 0 else "❌"
+                
+                # Проверяем синхронизацию контента в Notion
+                cursor.execute('''
+                    SELECT content_type, sync_status FROM notion_content_sync 
+                    WHERE event_id = ?
+                ''', (event_id,))
+                content_sync_results = cursor.fetchall()
+                
+                notion_content_status = "❌"
+                if content_sync_results:
+                    # Проверяем, есть ли успешные синхронизации
+                    success_count = sum(1 for _, status in content_sync_results if status == 'success')
+                    total_count = len(content_sync_results)
+                    if success_count == total_count and total_count > 0:
+                        notion_content_status = f"✅({success_count})"
+                    elif success_count > 0:
+                        notion_content_status = f"🔄({success_count}/{total_count})"
+                    else:
+                        notion_content_status = "❌"
                 
                 # Проверяем медиа файлы - ищем по папке события
                 cursor.execute('''
@@ -457,14 +555,16 @@ class DatabaseViewer:
                     overall_status = "❌ Только календарь"
                 
                 # Формируем строку таблицы
-                row = f"{event_title:<40} {event_datetime:<20} {account_type:<8} {calendar_status:<12} {folder_status:<8} {notion_page_status:<8} {media_status:<12} {trans_status:<15} {summary_status:<10} {overall_status:<10}"
+                row = f"{event_title:<40} {event_datetime:<20} {account_type:<8} {calendar_status:<12} {folder_status:<8} {notion_page_status:<8} {notion_content_status:<15} {media_status:<12} {trans_status:<15} {summary_status:<10} {overall_status:<10}"
                 print(row)
             
-            print("-" * 200)
+            print("-" * 220)
             print("📝 Легенда:")
             print("  ✅ - Обработано")
             print("  ❌ - Не обработано")
+            print("  🔄 - Частично обработано")
             print("  (число) - Количество обработанных файлов")
+            print("  Notion Content - Синхронизация контента (транскрипция/саммари) в Notion")
             print("  Полный - Все этапы выполнены (папка + Notion + медиа + транскрипция + саммари)")
             print("  Базовая обработка - Создана папка и страница в Notion")
             print("  Частичный - Выполнены некоторые этапы")
@@ -473,18 +573,25 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка создания таблицы обработки: {e}")
     
-    def show_detailed_processing_table(self, limit: int = 10):
+    def show_detailed_processing_table(self, limit: int = None):
         """Показывает детальную таблицу обработки с временными метками."""
         try:
             cursor = self.conn.cursor()
             
             # Получаем все события
-            cursor.execute('''
-                SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
-                FROM processed_events 
-                ORDER BY processed_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    ORDER BY processed_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    ORDER BY processed_at DESC
+                ''')
             
             events = cursor.fetchall()
             
@@ -492,7 +599,10 @@ class DatabaseViewer:
                 print("📊 События для детальной таблицы не найдены")
                 return
             
-            print(f"📊 ДЕТАЛЬНАЯ ТАБЛИЦА ОБРАБОТКИ (последние {len(events)} событий)")
+            if limit:
+                print(f"📊 ДЕТАЛЬНАЯ ТАБЛИЦА ОБРАБОТКИ (последние {len(events)} событий)")
+            else:
+                print(f"📊 ДЕТАЛЬНАЯ ТАБЛИЦА ОБРАБОТКИ (все {len(events)} событий)")
             print("=" * 180)
             
             # Заголовок таблицы
@@ -694,16 +804,23 @@ class DatabaseViewer:
             self.conn.rollback()
             return False
     
-    def list_events_for_deletion(self, limit: int = 20):
+    def list_events_for_deletion(self, limit: int = None):
         """Показывает список событий для выбора удаления."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute("""
-                SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
-                FROM processed_events 
-                ORDER BY processed_at DESC 
-                LIMIT ?
-            """, (limit,))
+            if limit:
+                cursor.execute("""
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    ORDER BY processed_at DESC 
+                    LIMIT ?
+                """, (limit,))
+            else:
+                cursor.execute("""
+                    SELECT event_id, account_type, event_title, event_start_time, event_end_time, processed_at
+                    FROM processed_events 
+                    ORDER BY processed_at DESC
+                """)
             
             events = cursor.fetchall()
             
@@ -711,7 +828,10 @@ class DatabaseViewer:
                 print("📭 Нет событий для удаления")
                 return
             
-            print(f"📋 Список событий для удаления (последние {len(events)}):")
+            if limit:
+                print(f"📋 Список событий для удаления (последние {len(events)}):")
+            else:
+                print(f"📋 Список событий для удаления (все {len(events)}):")
             print("=" * 120)
             print(f"{'№':<3} {'ID':<25} {'Аккаунт':<8} {'Название':<40} {'Время':<20} {'Обработано':<20}")
             print("-" * 120)
@@ -730,22 +850,35 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения списка событий: {e}")
 
-    def show_processed_summaries(self, limit: int = 20):
+    def show_processed_summaries(self, limit: int = None):
         """Показывает обработанные саммари."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT 
-                    id,
-                    transcript_file,
-                    summary_file,
-                    analysis_file,
-                    status,
-                    created_at
-                FROM processed_summaries 
-                ORDER BY created_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT 
+                        id,
+                        transcript_file,
+                        summary_file,
+                        analysis_file,
+                        status,
+                        created_at
+                    FROM processed_summaries 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT 
+                        id,
+                        transcript_file,
+                        summary_file,
+                        analysis_file,
+                        status,
+                        created_at
+                    FROM processed_summaries 
+                    ORDER BY created_at DESC
+                ''')
             
             summaries = cursor.fetchall()
             
@@ -753,7 +886,10 @@ class DatabaseViewer:
                 print("📋 Обработанные саммари не найдены")
                 return
             
-            print(f"📋 Обработанные саммари (последние {len(summaries)}):")
+            if limit:
+                print(f"📋 Обработанные саммари (последние {len(summaries)}):")
+            else:
+                print(f"📋 Все {len(summaries)} обработанных саммари:")
             print("=" * 120)
             print(f"{'ID':<3} {'Статус':<8} {'Создано':<20} {'Файл транскрипции':<50}")
             print("=" * 120)
@@ -769,23 +905,37 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения саммари: {e}")
 
-    def show_notion_sync_status(self, limit: int = 20):
+    def show_notion_sync_status(self, limit: int = None):
         """Показывает статус синхронизации с Notion."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT 
-                    id,
-                    event_id,
-                    page_id,
-                    page_url,
-                    sync_status,
-                    last_sync,
-                    created_at
-                FROM notion_sync_status 
-                ORDER BY created_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT 
+                        id,
+                        event_id,
+                        page_id,
+                        page_url,
+                        sync_status,
+                        last_sync,
+                        created_at
+                    FROM notion_sync_status 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT 
+                        id,
+                        event_id,
+                        page_id,
+                        page_url,
+                        sync_status,
+                        last_sync,
+                        created_at
+                    FROM notion_sync_status 
+                    ORDER BY created_at DESC
+                ''')
             
             sync_records = cursor.fetchall()
             
@@ -793,7 +943,10 @@ class DatabaseViewer:
                 print("📝 Записи синхронизации с Notion не найдены")
                 return
             
-            print(f"📝 Статус синхронизации с Notion (последние {len(sync_records)}):")
+            if limit:
+                print(f"📝 Статус синхронизации с Notion (последние {len(sync_records)}):")
+            else:
+                print(f"📝 Все {len(sync_records)} записей синхронизации с Notion:")
             print("=" * 140)
             print(f"{'ID':<3} {'Event ID':<15} {'Page ID':<15} {'Статус':<8} {'Последняя синхронизация':<20} {'Создано':<20}")
             print("=" * 140)
@@ -810,22 +963,35 @@ class DatabaseViewer:
         except Exception as e:
             print(f"❌ Ошибка получения статуса синхронизации Notion: {e}")
 
-    def show_folder_creation_status(self, limit: int = 20):
+    def show_folder_creation_status(self, limit: int = None):
         """Показывает статус создания папок."""
         try:
             cursor = self.conn.cursor()
-            cursor.execute('''
-                SELECT 
-                    id,
-                    event_id,
-                    folder_path,
-                    account_type,
-                    status,
-                    created_at
-                FROM folder_creation_status 
-                ORDER BY created_at DESC 
-                LIMIT ?
-            ''', (limit,))
+            if limit:
+                cursor.execute('''
+                    SELECT 
+                        id,
+                        event_id,
+                        folder_path,
+                        account_type,
+                        status,
+                        created_at
+                    FROM folder_creation_status 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                ''', (limit,))
+            else:
+                cursor.execute('''
+                    SELECT 
+                        id,
+                        event_id,
+                        folder_path,
+                        account_type,
+                        status,
+                        created_at
+                    FROM folder_creation_status 
+                    ORDER BY created_at DESC
+                ''')
             
             folders = cursor.fetchall()
             
@@ -833,7 +999,10 @@ class DatabaseViewer:
                 print("📁 Записи создания папок не найдены")
                 return
             
-            print(f"📁 Статус создания папок (последние {len(folders)}):")
+            if limit:
+                print(f"📁 Статус создания папок (последние {len(folders)}):")
+            else:
+                print(f"📁 Все {len(folders)} записей создания папок:")
             print("=" * 120)
             print(f"{'ID':<3} {'Event ID':<15} {'Тип аккаунта':<8} {'Статус':<8} {'Создано':<20} {'Путь к папке':<50}")
             print("=" * 120)
