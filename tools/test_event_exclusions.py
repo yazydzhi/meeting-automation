@@ -28,16 +28,13 @@ def test_exclusions():
     stats = exclusion_manager.get_exclusion_stats()
     print(f"📊 Статистика исключений:")
     print(f"  📄 Всего: {stats['total']}")
-    print(f"  👤 Личные: {stats['personal']}")
-    print(f"  🔧 Рабочие: {stats['work']}")
-    print(f"  🔄 Общие: {stats['both']}")
     print(f"  🔤 Ключевые слова: {stats['keywords']}")
     print(f"  📝 Регулярные выражения: {stats['regex']}")
     print()
     
     # Тестовые события
     test_events = [
-        # Личные события
+        # События, которые должны исключаться
         ("День рождения мамы", "personal"),
         ("Дела по дому", "personal"),
         ("Личная встреча", "personal"),
@@ -47,8 +44,6 @@ def test_exclusions():
         ("Отдых на даче", "personal"),
         ("Напоминание о покупках", "personal"),
         ("Personal meeting", "personal"),
-        
-        # Рабочие события
         ("Обед с клиентом", "work"),
         ("Перерыв на кофе", "work"),
         ("Отгул по болезни", "work"),
@@ -98,14 +93,14 @@ def test_exclusions():
     
     # Добавляем регулярное выражение для тестирования
     test_regex = ".*[Тт]ест.*"
-    success = exclusion_manager.add_exclusion("both", ExclusionType.REGEX, test_regex)
+    success = exclusion_manager.add_exclusion(ExclusionType.REGEX, test_regex)
     
     if success:
         print(f"✅ Добавлено регулярное выражение: {test_regex}")
         
         # Тестируем новое исключение
         test_title = "Тестовая встреча"
-        should_exclude = exclusion_manager.should_exclude_event(test_title, "work")
+        should_exclude = exclusion_manager.should_exclude_event(test_title)
         
         if should_exclude:
             print(f"✅ Регулярное выражение работает: '{test_title}' исключено")
@@ -113,7 +108,7 @@ def test_exclusions():
             print(f"❌ Регулярное выражение не работает: '{test_title}' не исключено")
         
         # Удаляем тестовое исключение
-        exclusion_manager.remove_exclusion("both", ExclusionType.REGEX, test_regex)
+        exclusion_manager.remove_exclusion(ExclusionType.REGEX, test_regex)
         print(f"🗑️ Тестовое исключение удалено")
     
     # Показываем все исключения

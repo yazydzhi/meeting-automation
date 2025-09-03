@@ -20,7 +20,6 @@ class ExclusionType(Enum):
 @dataclass
 class EventExclusion:
     """Исключение события."""
-    account_type: str  # personal, work, both
     exclusion_type: ExclusionType
     value: str
     compiled_regex: Optional[re.Pattern] = None
@@ -90,40 +89,39 @@ class EventExclusionManager:
         Парсит строку исключения.
         
         Args:
-            exclusion_str: Строка в формате "account_type:exclusion_type:value"
+            exclusion_str: Строка исключения (ключевое слово или "regex:pattern")
             
         Returns:
             Объект исключения или None
         """
-        parts = exclusion_str.split(':', 2)
-        if len(parts) != 3:
-            raise ValueError(f"Неверный формат исключения: {exclusion_str}")
+        exclusion_str = exclusion_str.strip()
+        if not exclusion_str:
+            return None
         
-        account_type, exclusion_type_str, value = parts
-        
-        # Проверяем тип аккаунта
-        if account_type not in ['personal', 'work', 'both']:
-            raise ValueError(f"Неверный тип аккаунта: {account_type}")
-        
-        # Проверяем тип исключения
-        try:
-            exclusion_type = ExclusionType(exclusion_type_str)
-        except ValueError:
-            raise ValueError(f"Неверный тип исключения: {exclusion_type_str}")
-        
-        return EventExclusion(
-            account_type=account_type,
-            exclusion_type=exclusion_type,
-            value=value
-        )
+        # Проверяем, является ли это регулярным выражением
+        if exclusion_str.startswith('regex:'):
+            pattern = exclusion_str[6:]  # Убираем "regex:"
+            if not pattern:
+                raise ValueError("Пустое регулярное выражение")
+            
+            return EventExclusion(
+                exclusion_type=ExclusionType.REGEX,
+                value=pattern
+            )
+        else:
+            # Обычное ключевое слово
+            return EventExclusion(
+                exclusion_type=ExclusionType.KEYWORD,
+                value=exclusion_str
+            )
     
-    def should_exclude_event(self, event_title: str, account_type: str) -> bool:
+    def should_exclude_event(self, event_title: str, account_type: str = None) -> bool:
         """
         Проверяет, должно ли событие быть исключено.
         
         Args:
             event_title: Название события
-            account_type: Тип аккаунта (personal, work)
+            account_type: Тип аккаунта (игнорируется, оставлен для совместимости)
             
         Returns:
             True если событие должно быть исключено
@@ -132,10 +130,6 @@ class EventExclusionManager:
             return False
         
         for exclusion in self.exclusions:
-            # Проверяем, применимо ли исключение к данному типу аккаунта
-            if exclusion.account_type not in ['both', account_type]:
-                continue
-            
             # Проверяем исключение
             if exclusion.exclusion_type == ExclusionType.KEYWORD:
                 if exclusion.value.lower() in event_title.lower():
@@ -151,20 +145,14 @@ class EventExclusionManager:
         
         return False
     
-    def get_exclusions_for_account(self, account_type: str) -> List[EventExclusion]:
+    def get_all_exclusions(self) -> List[EventExclusion]:
         """
-        Получает исключения для указанного типа аккаунта.
+        Получает все исключения.
         
-        Args:
-            account_type: Тип аккаунта (personal, work)
-            
         Returns:
-            Список исключений для аккаунта
+            Список всех исключений
         """
-        return [
-            exclusion for exclusion in self.exclusions
-            if exclusion.account_type in ['both', account_type]
-        ]
+        return self.exclusions.copy()
     
     def get_exclusion_stats(self) -> Dict[str, int]:
         """
@@ -175,25 +163,23 @@ class EventExclusionManager:
         """
         stats = {
             'total': len(self.exclusions),
-            'personal': 0,
-            'work': 0,
-            'both': 0,
             'keywords': 0,
             'regex': 0
         }
         
         for exclusion in self.exclusions:
-            stats[exclusion.account_type] += 1
-            stats[f"{exclusion.exclusion_type.value}s"] += 1
+            if exclusion.exclusion_type == ExclusionType.KEYWORD:
+                stats['keywords'] += 1
+            elif exclusion.exclusion_type == ExclusionType.REGEX:
+                stats['regex'] += 1
         
         return stats
     
-    def add_exclusion(self, account_type: str, exclusion_type: ExclusionType, value: str) -> bool:
+    def add_exclusion(self, exclusion_type: ExclusionType, value: str) -> bool:
         """
         Добавляет новое исключение.
         
         Args:
-            account_type: Тип аккаунта
             exclusion_type: Тип исключения
             value: Значение исключения
             
@@ -202,14 +188,13 @@ class EventExclusionManager:
         """
         try:
             exclusion = EventExclusion(
-                account_type=account_type,
                 exclusion_type=exclusion_type,
                 value=value
             )
             self.exclusions.append(exclusion)
             
             if self.logger:
-                self.logger.info(f"✅ Добавлено исключение: {account_type}:{exclusion_type.value}:{value}")
+                self.logger.info(f"✅ Добавлено исключение: {exclusion_type.value}:{value}")
             
             return True
             
@@ -218,12 +203,11 @@ class EventExclusionManager:
                 self.logger.error(f"❌ Ошибка добавления исключения: {e}")
             return False
     
-    def remove_exclusion(self, account_type: str, exclusion_type: ExclusionType, value: str) -> bool:
+    def remove_exclusion(self, exclusion_type: ExclusionType, value: str) -> bool:
         """
         Удаляет исключение.
         
         Args:
-            account_type: Тип аккаунта
             exclusion_type: Тип исключения
             value: Значение исключения
             
@@ -231,14 +215,13 @@ class EventExclusionManager:
             True если исключение удалено
         """
         for i, exclusion in enumerate(self.exclusions):
-            if (exclusion.account_type == account_type and 
-                exclusion.exclusion_type == exclusion_type and 
+            if (exclusion.exclusion_type == exclusion_type and 
                 exclusion.value == value):
                 
                 del self.exclusions[i]
                 
                 if self.logger:
-                    self.logger.info(f"✅ Удалено исключение: {account_type}:{exclusion_type.value}:{value}")
+                    self.logger.info(f"✅ Удалено исключение: {exclusion_type.value}:{value}")
                 
                 return True
         
@@ -259,6 +242,9 @@ class EventExclusionManager:
         
         lines = ["Настроенные исключения:"]
         for exclusion in self.exclusions:
-            lines.append(f"  {exclusion.account_type}:{exclusion.exclusion_type.value}:{exclusion.value}")
+            if exclusion.exclusion_type == ExclusionType.REGEX:
+                lines.append(f"  regex:{exclusion.value}")
+            else:
+                lines.append(f"  {exclusion.value}")
         
         return "\n".join(lines)
