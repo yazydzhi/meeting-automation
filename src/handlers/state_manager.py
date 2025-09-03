@@ -1250,3 +1250,28 @@ class StateManager:
         except Exception as e:
             self.logger.error(f"❌ Ошибка получения статуса Notion для {event_id}: {e}")
             return None
+
+    def record_content_sync_status(self, event_id: str, content_type: str, status: str, error_message: str = None):
+        """Записывает статус синхронизации контента в БД."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Вставляем или обновляем запись
+                cursor.execute('''
+                    INSERT OR REPLACE INTO notion_content_sync 
+                    (event_id, content_type, sync_status, synced_at, error_message, created_at)
+                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    event_id,
+                    content_type,
+                    status,
+                    datetime.now().isoformat() if status == 'success' else None,
+                    error_message
+                ))
+                
+                conn.commit()
+                self.logger.info(f"✅ Статус синхронизации записан: {event_id} - {content_type} - {status}")
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка записи статуса синхронизации: {e}")

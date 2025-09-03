@@ -1308,9 +1308,13 @@ class NotionHandler(BaseHandler):
                 success = self._add_blocks_to_page(page_id, blocks_to_add, notion_token)
                 if success:
                     self.logger.info(f"✅ Контент страницы {page_id} успешно обновлен")
+                    
+                    # Записываем статус синхронизации в БД
+                    self._record_content_sync_status(page_id, processing_results, "success")
                     return True
                 else:
                     self.logger.error(f"❌ Не удалось обновить контент страницы {page_id}")
+                    self._record_content_sync_status(page_id, processing_results, "error", "Failed to add blocks to page")
                     return False
             else:
                 self.logger.info(f"ℹ️ Нет нового контента для добавления на страницу {page_id}")
@@ -1422,3 +1426,49 @@ class NotionHandler(BaseHandler):
         except Exception as e:
             self.logger.error(f"❌ Ошибка добавления блоков на страницу: {e}")
             return False
+
+    def _record_content_sync_status(self, page_id: str, processing_results: Dict[str, Any], status: str, error_message: str = None):
+        """Записывает статус синхронизации контента в БД."""
+        try:
+            if not self.state_manager:
+                return
+            
+            # Получаем event_id по page_id
+            event_id = self._get_event_id_by_page_id(page_id)
+            if not event_id:
+                self.logger.warning(f"⚠️ Не удалось найти event_id для page_id {page_id}")
+                return
+            
+            # Записываем статус для каждого типа контента
+            if processing_results.get('transcription'):
+                self.state_manager.record_content_sync_status(
+                    event_id, 'transcription', status, error_message
+                )
+            
+            if processing_results.get('summary'):
+                self.state_manager.record_content_sync_status(
+                    event_id, 'summary', status, error_message
+                )
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка записи статуса синхронизации: {e}")
+
+    def _get_event_id_by_page_id(self, page_id: str) -> Optional[str]:
+        """Получает event_id по page_id из БД."""
+        try:
+            if not self.state_manager:
+                return None
+            
+            with sqlite3.connect(self.state_manager.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    SELECT event_id FROM notion_sync_status 
+                    WHERE page_id = ?
+                ''', (page_id,))
+                
+                result = cursor.fetchone()
+                return result[0] if result else None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения event_id для page_id {page_id}: {e}")
+            return None
