@@ -651,34 +651,19 @@ class NotionHandler(BaseHandler):
             if not self._validate_notion_config():
                 return {"success": False, "message": "Notion configuration not valid"}
             
-            # Обновляем страницу через Notion API
-            notion_config = self.config_manager.get_notion_config()
+            if not notion_page_id:
+                self.logger.error(f"❌ ID страницы Notion не предоставлен")
+                return {"success": False, "message": "Notion page ID not provided"}
             
-            # Ищем страницу по ID события или пути папки
-            page_id = self._get_notion_page_id_by_event_id(event_id) or \
-                      self._get_notion_page_id_by_folder_path(folder_path)
+            # Обновляем контент страницы
+            success = self._update_page_content(notion_page_id, processing_results)
             
-            if not page_id:
-                self.logger.error(f"❌ Страница Notion для события {event_id} не найдена")
-                return False
-            
-            # Подготавливаем свойства для обновления
-            properties = self._prepare_update_properties(results)
-            
-            # Подготавливаем содержимое для обновления
-            content = self._prepare_update_content(results)
-            
-            # Обновляем страницу
-            success = self.notion_api.update_page(page_id, properties, content)
-            
-            return success
-            # Пока возвращаем заглушку
-            self.logger.info(f"📝 Обновление страницы Notion (заглушка): {processing_results}")
-            
-            return {
-                "success": True,
-                "message": "Notion page update not yet implemented"
-            }
+            if success:
+                self.logger.info(f"✅ Страница Notion {notion_page_id} успешно обновлена")
+                return {"success": True, "message": "Notion page updated successfully"}
+            else:
+                self.logger.error(f"❌ Не удалось обновить страницу Notion {notion_page_id}")
+                return {"success": False, "message": "Failed to update Notion page"}
                 
         except Exception as e:
             self.logger.error(f"❌ Ошибка обновления страницы Notion: {e}")
@@ -1278,3 +1263,162 @@ class NotionHandler(BaseHandler):
         except Exception as e:
             self.logger.error(f"❌ Ошибка подготовки содержимого для обновления: {e}")
             return []
+
+    def _update_page_content(self, page_id: str, processing_results: Dict[str, Any]) -> bool:
+        """
+        Обновляет контент страницы Notion результатами обработки.
+        
+        Args:
+            page_id: ID страницы Notion
+            processing_results: Результаты обработки
+            
+        Returns:
+            True если обновление успешно, False иначе
+        """
+        try:
+            self.logger.info(f"📝 Обновление контента страницы {page_id}")
+            
+            # Получаем конфигурацию Notion
+            notion_config = self.config_manager.get_notion_config()
+            notion_token = notion_config.get('token')
+            
+            if not notion_token:
+                self.logger.error("❌ Не настроен Notion токен")
+                return False
+            
+            # Подготавливаем блоки для добавления
+            blocks_to_add = []
+            
+            # Добавляем транскрипцию если есть
+            if processing_results.get('transcription'):
+                transcript_data = processing_results['transcription']
+                if transcript_data.get('status') == 'success' and transcript_data.get('file_path'):
+                    transcript_blocks = self._create_transcript_blocks(transcript_data['file_path'])
+                    blocks_to_add.extend(transcript_blocks)
+            
+            # Добавляем саммари если есть
+            if processing_results.get('summary'):
+                summary_data = processing_results['summary']
+                if summary_data.get('status') == 'success' and summary_data.get('file_path'):
+                    summary_blocks = self._create_summary_blocks(summary_data['file_path'])
+                    blocks_to_add.extend(summary_blocks)
+            
+            # Если есть блоки для добавления, добавляем их
+            if blocks_to_add:
+                success = self._add_blocks_to_page(page_id, blocks_to_add, notion_token)
+                if success:
+                    self.logger.info(f"✅ Контент страницы {page_id} успешно обновлен")
+                    return True
+                else:
+                    self.logger.error(f"❌ Не удалось обновить контент страницы {page_id}")
+                    return False
+            else:
+                self.logger.info(f"ℹ️ Нет нового контента для добавления на страницу {page_id}")
+                return True
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления контента страницы {page_id}: {e}")
+            return False
+
+    def _create_transcript_blocks(self, transcript_file_path: str) -> List[Dict[str, Any]]:
+        """Создает блоки для транскрипции."""
+        try:
+            blocks = []
+            
+            # Заголовок транскрипции
+            blocks.append({
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": "📝 Транскрипция встречи"}}]
+                }
+            })
+            
+            # Читаем файл транскрипции
+            if os.path.exists(transcript_file_path):
+                with open(transcript_file_path, 'r', encoding='utf-8') as f:
+                    transcript_content = f.read()
+                
+                # Разбиваем на части (лимит Notion - 2000 символов на блок)
+                chunk_size = 1800
+                transcript_chunks = [transcript_content[i:i+chunk_size] for i in range(0, len(transcript_content), chunk_size)]
+                
+                for chunk in transcript_chunks:
+                    blocks.append({
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"type": "text", "text": {"content": chunk}}]
+                        }
+                    })
+            
+            return blocks
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания блоков транскрипции: {e}")
+            return []
+
+    def _create_summary_blocks(self, summary_file_path: str) -> List[Dict[str, Any]]:
+        """Создает блоки для саммари."""
+        try:
+            blocks = []
+            
+            # Заголовок саммари
+            blocks.append({
+                "type": "heading_2",
+                "heading_2": {
+                    "rich_text": [{"type": "text", "text": {"content": "📊 Саммари встречи"}}]
+                }
+            })
+            
+            # Читаем файл саммари
+            if os.path.exists(summary_file_path):
+                with open(summary_file_path, 'r', encoding='utf-8') as f:
+                    summary_content = f.read()
+                
+                # Разбиваем на части
+                chunk_size = 1800
+                summary_chunks = [summary_content[i:i+chunk_size] for i in range(0, len(summary_content), chunk_size)]
+                
+                for chunk in summary_chunks:
+                    blocks.append({
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"type": "text", "text": {"content": chunk}}]
+                        }
+                    })
+            
+            return blocks
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка создания блоков саммари: {e}")
+            return []
+
+    def _add_blocks_to_page(self, page_id: str, blocks: List[Dict[str, Any]], notion_token: str) -> bool:
+        """Добавляет блоки на страницу Notion."""
+        try:
+            import requests
+            
+            headers = {
+                'Authorization': f'Bearer {notion_token}',
+                'Notion-Version': '2022-06-28',
+                'Content-Type': 'application/json'
+            }
+            
+            # Добавляем блоки по частям (лимит API)
+            chunk_size = 50
+            for i in range(0, len(blocks), chunk_size):
+                chunk = blocks[i:i+chunk_size]
+                
+                url = f'https://api.notion.com/v1/blocks/{page_id}/children'
+                payload = {'children': chunk}
+                
+                response = requests.patch(url, headers=headers, json=payload)
+                
+                if response.status_code != 200:
+                    self.logger.error(f"❌ Ошибка добавления блоков: {response.status_code} - {response.text}")
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка добавления блоков на страницу: {e}")
+            return False

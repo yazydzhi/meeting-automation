@@ -108,6 +108,20 @@ class StateManager:
                     )
                 ''')
                 
+                # Таблица для отслеживания синхронизации контента с Notion
+                cursor.execute('''
+                    CREATE TABLE IF NOT EXISTS notion_content_sync (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        event_id TEXT NOT NULL,
+                        content_type TEXT NOT NULL,
+                        sync_status TEXT DEFAULT 'pending',
+                        synced_at TIMESTAMP,
+                        error_message TEXT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(event_id, content_type)
+                    )
+                ''')
+                
                 # Создаем индексы для быстрого поиска
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_processed_events_event_id ON processed_events(event_id)')
                 cursor.execute('CREATE INDEX IF NOT EXISTS idx_processed_events_account ON processed_events(account_type)')
@@ -1070,3 +1084,169 @@ class StateManager:
             
         except Exception as e:
             self.logger.error(f"❌ Ошибка добавления транскрипции в Notion: {e}")
+
+    def get_events_with_transcriptions_not_synced_to_notion(self) -> List[str]:
+        """Получает список событий с транскрипциями, которые не синхронизированы в Notion."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Получаем события с успешными транскрипциями, у которых есть Notion страницы
+                cursor.execute('''
+                    SELECT DISTINCT pt.event_id
+                    FROM processed_transcriptions pt
+                    JOIN notion_sync_status nss ON pt.event_id = nss.event_id
+                    WHERE pt.status = 'success' 
+                    AND nss.sync_status = 'success'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM notion_content_sync ncs 
+                        WHERE ncs.event_id = pt.event_id 
+                        AND ncs.content_type = 'transcription'
+                        AND ncs.sync_status = 'success'
+                    )
+                ''')
+                
+                events = [row[0] for row in cursor.fetchall()]
+                self.logger.info(f"📝 Найдено {len(events)} событий с транскрипциями для синхронизации в Notion")
+                return events
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения событий с транскрипциями: {e}")
+            return []
+
+    def get_events_with_summaries_not_synced_to_notion(self) -> List[str]:
+        """Получает список событий с саммари, которые не синхронизированы в Notion."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # Получаем события с успешными саммари, у которых есть Notion страницы
+                cursor.execute('''
+                    SELECT DISTINCT ps.event_id
+                    FROM processed_summaries ps
+                    JOIN notion_sync_status nss ON ps.event_id = nss.event_id
+                    WHERE ps.status = 'success' 
+                    AND nss.sync_status = 'success'
+                    AND NOT EXISTS (
+                        SELECT 1 FROM notion_content_sync ncs 
+                        WHERE ncs.event_id = ps.event_id 
+                        AND ncs.content_type = 'summary'
+                        AND ncs.sync_status = 'success'
+                    )
+                ''')
+                
+                events = [row[0] for row in cursor.fetchall()]
+                self.logger.info(f"📝 Найдено {len(events)} событий с саммари для синхронизации в Notion")
+                return events
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения событий с саммари: {e}")
+            return []
+
+    def get_transcription_data(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Получает данные транскрипции для события."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT status, file_path, processed_at, transcript_file
+                    FROM processed_transcriptions
+                    WHERE event_id = ?
+                ''', (event_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'status': result[0],
+                        'file_path': result[1],
+                        'created_at': result[2],
+                        'transcript_file': result[3]
+                    }
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения данных транскрипции для {event_id}: {e}")
+            return None
+
+    def get_summary_data(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Получает данные саммари для события."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT status, transcript_file, summary_file, analysis_file, created_at
+                    FROM processed_summaries
+                    WHERE event_id = ?
+                ''', (event_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'status': result[0],
+                        'transcript_file': result[1],
+                        'summary_file': result[2],
+                        'analysis_file': result[3],
+                        'created_at': result[4]
+                    }
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения данных саммари для {event_id}: {e}")
+            return None
+
+    def get_event_data(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Получает данные события."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT event_title, event_start_time, event_end_time, 
+                           attendees, meeting_link, calendar_type
+                    FROM processed_events
+                    WHERE event_id = ?
+                ''', (event_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'event_id': event_id,
+                        'event_title': result[0],
+                        'event_start_time': result[1],
+                        'event_end_time': result[2],
+                        'attendees': result[3],
+                        'meeting_link': result[4],
+                        'calendar_type': result[5]
+                    }
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения данных события {event_id}: {e}")
+            return None
+
+    def get_notion_sync_status(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Получает статус синхронизации с Notion для события."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute('''
+                    SELECT page_id, sync_status, created_at
+                    FROM notion_sync_status
+                    WHERE event_id = ?
+                ''', (event_id,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return {
+                        'page_id': result[0],
+                        'sync_status': result[1],
+                        'created_at': result[2]
+                    }
+                return None
+                
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения статуса Notion для {event_id}: {e}")
+            return None

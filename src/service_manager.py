@@ -1579,28 +1579,49 @@ class MeetingAutomationService:
             self.logger.info("📝 Запуск обновления страниц Notion результатами обработки...")
             start_time = time.time()
             
-            # Получаем результаты обработки из текущего состояния
-            # Пока используем заглушки, так как конкретная реализация обновления Notion не реализована
-            processed_files = []  # TODO: Получить из кэша или состояния
-            transcribed_files = []  # TODO: Получить из кэша или состояния
-            summarized_files = []  # TODO: Получить из кэша или состояния
+            # Получаем события с новыми результатами обработки
+            updated_count = 0
+            error_count = 0
+            
+            # Получаем события с транскрипциями, которые нужно синхронизировать
+            transcribed_events = self._get_events_with_new_transcriptions()
+            self.logger.info(f"📝 Найдено {len(transcribed_events)} событий с новыми транскрипциями")
+            
+            # Получаем события с саммари, которые нужно синхронизировать
+            summarized_events = self._get_events_with_new_summaries()
+            self.logger.info(f"📝 Найдено {len(summarized_events)} событий с новыми саммари")
+            
+            # Объединяем все события для обновления
+            all_events_to_update = set(transcribed_events + summarized_events)
+            self.logger.info(f"📝 Всего событий для обновления в Notion: {len(all_events_to_update)}")
+            
+            # Обновляем каждое событие
+            for event_id in all_events_to_update:
+                try:
+                    success = self._update_single_notion_page(event_id)
+                    if success:
+                        updated_count += 1
+                        self.logger.info(f"✅ Обновлена Notion страница для события: {event_id}")
+                    else:
+                        error_count += 1
+                        self.logger.warning(f"⚠️ Не удалось обновить Notion страницу для события: {event_id}")
+                except Exception as e:
+                    error_count += 1
+                    self.logger.error(f"❌ Ошибка обновления Notion страницы для {event_id}: {e}")
             
             update_stats = {
-                "status": "success",
-                "processed": len(processed_files),
-                "updated": 0,
+                "status": "success" if error_count == 0 else "partial",
+                "processed": len(all_events_to_update),
+                "updated": updated_count,
                 "duration": 0,
-                "message": "Notion pages updated successfully",
-                "errors": 0
+                "message": f"Notion pages updated: {updated_count} success, {error_count} errors",
+                "errors": error_count
             }
-            
-            # TODO: Реализовать обновление конкретных страниц Notion
-            # Пока просто логируем статистику
-            self.logger.info(f"📊 Статистика для обновления Notion: {len(processed_files)} обработано, {len(transcribed_files)} транскрибировано, {len(summarized_files)} саммари")
             
             duration = time.time() - start_time
             update_stats["duration"] = duration
             
+            self.logger.info(f"📊 Статистика для обновления Notion: {len(all_events_to_update)} обработано, {updated_count} обновлено, {error_count} ошибок")
             self.logger.info(f"📝 Обновление страниц Notion завершено за {duration:.2f} секунд")
             return update_stats
             
@@ -1631,6 +1652,111 @@ class MeetingAutomationService:
         except Exception as e:
             self.logger.error(f"❌ Ошибка сохранения состояния: {e}")
             self.logger.debug(f"Стек вызовов: {traceback.format_exc()}")
+
+    def _get_events_with_new_transcriptions(self) -> List[str]:
+        """Получает список событий с новыми транскрипциями для синхронизации в Notion."""
+        try:
+            if not self.state_manager:
+                return []
+            
+            # Получаем события с успешными транскрипциями, которые еще не синхронизированы в Notion
+            events = self.state_manager.get_events_with_transcriptions_not_synced_to_notion()
+            return events
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения событий с транскрипциями: {e}")
+            return []
+
+    def _get_events_with_new_summaries(self) -> List[str]:
+        """Получает список событий с новыми саммари для синхронизации в Notion."""
+        try:
+            if not self.state_manager:
+                return []
+            
+            # Получаем события с успешными саммари, которые еще не синхронизированы в Notion
+            events = self.state_manager.get_events_with_summaries_not_synced_to_notion()
+            return events
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения событий с саммари: {e}")
+            return []
+
+    def _update_single_notion_page(self, event_id: str) -> bool:
+        """Обновляет одну страницу Notion результатами обработки."""
+        try:
+            if not self.notion_handler:
+                self.logger.warning("⚠️ NotionHandler недоступен")
+                return False
+            
+            # Получаем данные события из БД
+            event_data = self._get_event_data_from_db(event_id)
+            if not event_data:
+                self.logger.warning(f"⚠️ Данные события {event_id} не найдены в БД")
+                return False
+            
+            # Получаем результаты обработки
+            processing_results = self._get_processing_results_for_event(event_id)
+            
+            # Обновляем страницу через NotionHandler
+            result = self.notion_handler.update_meeting_results(
+                event_data.get('page_id'), 
+                processing_results
+            )
+            
+            return result.get('success', False)
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка обновления Notion страницы для {event_id}: {e}")
+            return False
+
+    def _get_event_data_from_db(self, event_id: str) -> Optional[Dict[str, Any]]:
+        """Получает данные события из БД."""
+        try:
+            if not self.state_manager:
+                return None
+            
+            # Получаем данные события
+            event_data = self.state_manager.get_event_data(event_id)
+            if not event_data:
+                return None
+            
+            # Получаем Notion page_id
+            notion_data = self.state_manager.get_notion_sync_status(event_id)
+            if notion_data and notion_data.get('sync_status') == 'success':
+                event_data['page_id'] = notion_data.get('page_id')
+                return event_data
+            
+            return None
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения данных события {event_id}: {e}")
+            return None
+
+    def _get_processing_results_for_event(self, event_id: str) -> Dict[str, Any]:
+        """Получает результаты обработки для события."""
+        try:
+            if not self.state_manager:
+                return {}
+            
+            results = {}
+            
+            # Получаем транскрипцию
+            transcript_data = self.state_manager.get_transcription_data(event_id)
+            if transcript_data and transcript_data.get('status') == 'success':
+                # Используем transcript_file как file_path для NotionHandler
+                transcript_data['file_path'] = transcript_data.get('transcript_file')
+                results['transcription'] = transcript_data
+            
+            # Получаем саммари
+            summary_data = self.state_manager.get_summary_data(event_id)
+            if summary_data and summary_data.get('status') == 'success':
+                # Используем summary_file как file_path для NotionHandler
+                summary_data['file_path'] = summary_data.get('summary_file')
+                results['summary'] = summary_data
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"❌ Ошибка получения результатов обработки для {event_id}: {e}")
+            return {}
 
 
 def main():
