@@ -44,6 +44,15 @@ class CalendarHandler(BaseHandler):
         self.google_service = None
         self.calendar_cache = {}
         
+        # Инициализируем менеджер исключений
+        try:
+            from ..event_exclusions import EventExclusionManager
+            self.exclusion_manager = EventExclusionManager(config_manager, logger)
+            self.logger.info("✅ EventExclusionManager инициализирован в CalendarHandler")
+        except Exception as e:
+            self.logger.warning(f"⚠️ EventExclusionManager недоступен в CalendarHandler: {e}")
+            self.exclusion_manager = None
+        
     def get_calendar_events(self, account_type: str, days_ahead: int = None) -> List[Dict[str, Any]]:
         """
         Получает события календаря для указанного аккаунта.
@@ -123,7 +132,7 @@ class CalendarHandler(BaseHandler):
             # Преобразуем в стандартный формат
             formatted_events = []
             for event in events:
-                formatted_event = self._format_google_event(event)
+                formatted_event = self._format_google_event(event, account_type)
                 if formatted_event:
                     formatted_events.append(formatted_event)
             
@@ -170,7 +179,7 @@ class CalendarHandler(BaseHandler):
             events = []
             for component in cal.walk():
                 if component.name == "VEVENT":
-                    event = self._format_ical_event(component, start_time, end_time)
+                    event = self._format_ical_event(component, start_time, end_time, account_type)
                     if event:
                         events.append(event)
             
@@ -181,7 +190,7 @@ class CalendarHandler(BaseHandler):
             self.logger.error(f"❌ Ошибка получения событий iCal календаря: {e}")
             return []
     
-    def _format_google_event(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _format_google_event(self, event: Dict[str, Any], account_type: str = 'work') -> Optional[Dict[str, Any]]:
         """
         Форматирует событие Google Calendar в стандартный формат.
         
@@ -210,6 +219,11 @@ class CalendarHandler(BaseHandler):
                     if attendee.get('responseStatus') != 'declined':
                         attendees.append(attendee.get('email', 'Unknown'))
             
+            # Проверяем исключения
+            if self.exclusion_manager and self.exclusion_manager.should_exclude_event(title, account_type):
+                self.logger.info(f"🚫 Событие исключено: {title}")
+                return None
+            
             # Формируем стандартный формат
             formatted_event = {
                 'id': event_id,
@@ -230,7 +244,7 @@ class CalendarHandler(BaseHandler):
             self.logger.error(f"❌ Ошибка форматирования события Google Calendar: {e}")
             return None
     
-    def _format_ical_event(self, component, now: datetime, end_time: datetime) -> Optional[Dict[str, Any]]:
+    def _format_ical_event(self, component, now: datetime, end_time: datetime, account_type: str = 'personal') -> Optional[Dict[str, Any]]:
         """
         Форматирует событие iCal в стандартный формат.
         
@@ -307,6 +321,11 @@ class CalendarHandler(BaseHandler):
             title = str(component.get('summary', 'Unknown Event'))
             description = str(component.get('description', ''))
             location = str(component.get('location', ''))
+            
+            # Проверяем исключения
+            if self.exclusion_manager and self.exclusion_manager.should_exclude_event(title, account_type):
+                self.logger.info(f"🚫 Событие исключено: {title}")
+                return None
             
             # Обрабатываем участников
             attendees = []
